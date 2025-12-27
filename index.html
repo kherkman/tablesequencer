@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel-Synth Master Pro 2025 - SF2 & Visual Pro</title>
+    <style>
+        :root {
+            --bg: #0a0a0b;
+            --panel: #16161a;
+            --accent: #00ff95;
+            --text: #e0e0e0;
+            --border: #2a2a2e;
+            --highlight: rgba(0, 255, 149, 0.15);
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 20px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        header {
+            display: flex; gap: 15px; flex-wrap: wrap;
+            background: var(--panel); padding: 20px;
+            border-radius: 12px; margin-bottom: 25px;
+            border: 1px solid var(--border); width: 100%; max-width: 1200px;
+            align-items: center; justify-content: center;
+        }
+
+        .sequencer-instance {
+            background: var(--panel); padding: 20px;
+            border-radius: 12px; margin-bottom: 30px;
+            border: 1px solid var(--border);
+            width: 100%; max-width: 1200px;
+            position: relative;
+        }
+
+        .controls-row {
+            display: flex; gap: 12px; margin-bottom: 15px;
+            align-items: center; flex-wrap: wrap;
+            padding-bottom: 12px; border-bottom: 1px solid var(--border);
+        }
+
+        button {
+            background: #252529; color: var(--accent);
+            border: 1px solid var(--accent); padding: 8px 16px;
+            border-radius: 6px; cursor: pointer; font-weight: 600;
+            transition: 0.2s;
+        }
+
+        button:hover { background: var(--accent); color: #000; }
+        
+        select, input[type="number"], input[type="text"] {
+            background: #000; border: 1px solid var(--border);
+            color: var(--accent); padding: 6px; border-radius: 4px;
+        }
+
+        .grid-container { overflow-x: auto; width: 100%; }
+        table { border-collapse: collapse; background: #000; width: 100%; }
+        th, td { border: 1px solid var(--border); min-width: 70px; height: 35px; text-align: center; }
+        th { background: #1a1a1f; color: #666; font-size: 11px; text-transform: uppercase; }
+
+        td input {
+            width: 100%; height: 100%; border: none; background: transparent;
+            color: #fff; text-align: center; outline: none; font-size: 13px;
+        }
+        
+        .current-step-cell { background: var(--highlight) !important; box-shadow: inset 0 0 5px var(--accent); }
+
+        #visualizer-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.96); display: none;
+            flex-direction: column; align-items: center; justify-content: center; z-index: 1000;
+        }
+
+        .label-group { display: flex; flex-direction: column; font-size: 10px; color: #888; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <button onclick="togglePlay()" id="playBtn">PLAY / PAUSE</button>
+    <button onclick="stopAll()">STOP</button>
+    <button onclick="resetToStart()">GO TO START</button>
+    <div class="label-group">
+        <label>TEMPO BPM</label>
+        <input type="number" id="bpm" value="120" style="width: 60px;">
+    </div>
+    <div class="label-group">
+        <label>MIDI OUT DEVICE</label>
+        <select id="midiOutSelect"></select>
+    </div>
+    <button onclick="addNewSequencer()">+ ADD SEQUENCER</button>
+    <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
+    <button onclick="exportAllMidi()">MIDI EXPORT</button>
+    <button onclick="alert('WAV Export: Press Play and record via System Audio.')">WAV EXPORT</button>
+</header>
+
+<div id="sequencers-container" style="width: 100%; display: flex; flex-direction: column; align-items: center;"></div>
+
+<div id="visualizer-overlay">
+    <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
+    <canvas id="circleCanvas" width="800" height="800"></canvas>
+</div>
+
+<!-- Ulkoiset kirjastot MIDI-vientiin ja SF2-toistoon -->
+<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
+<script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
+
+<script>
+    let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let sequencers = [];
+    let isPlaying = false;
+    let masterStep = 0;
+    let nextStepTime = 0;
+    let timerID = null;
+
+    // MIDI Laitteet
+    let midiOutDevice = null;
+    if (navigator.requestMIDIAccess) {
+        navigator.requestMIDIAccess().then(access => {
+            const select = document.getElementById('midiOutSelect');
+            const updateList = () => {
+                select.innerHTML = '<option value="">No MIDI Out</option>';
+                Array.from(access.outputs.values()).forEach(out => {
+                    const opt = document.createElement('option');
+                    opt.value = out.id; opt.text = out.name;
+                    select.appendChild(opt);
+                });
+            };
+            updateList();
+            access.onstatechange = updateList;
+            select.onchange = () => { midiOutDevice = access.outputs.get(select.value); };
+        });
+    }
+
+    class Sequencer {
+        constructor(id) {
+            this.id = id;
+            this.rows = 8;
+            this.cols = 16;
+            this.data = Array(this.rows).fill().map(() => Array(64).fill(""));
+            this.sampleBuffer = null;
+            this.sf2Synth = null;
+            this.rootHz = 440;
+            this.activeSources = Array(this.rows).fill(null);
+            this.render();
+        }
+
+        render() {
+            const container = document.getElementById('sequencers-container');
+            const div = document.createElement('div');
+            div.className = 'sequencer-instance';
+            div.id = `seq-box-${this.id}`;
+            div.innerHTML = `
+                <div class="controls-row">
+                    <strong>#${this.id + 1}</strong>
+                    <div class="label-group"><label>COLUMNS</label>
+                        <input type="number" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
+                    </div>
+                    <button onclick="sequencers[${this.id}].confirmDemo()">DEMO SETUP</button>
+                    <div class="label-group"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
+                    <div class="label-group"><label>SF2 LOAD</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
+                    <div class="label-group"><label>SAMP HZ</label><input type="number" value="440" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
+                    
+                    <button onclick="document.getElementById('csv-import-${this.id}').click()">CSV IMPORT</button>
+                    <input type="file" id="csv-import-${this.id}" hidden accept=".csv" onchange="sequencers[${this.id}].importCSV(this)">
+                    
+                    <button onclick="sequencers[${this.id}].exportCSV()">CSV EXPORT</button>
+                    <button onclick="removeSequencer(${this.id})" style="border-color: #444; color: #777;">REMOVE</button>
+                </div>
+                <div class="grid-container"><table id="table-${this.id}">
+                    <thead><tr id="head-${this.id}"></tr></thead>
+                    <tbody id="body-${this.id}"></tbody>
+                </table></div>
+            `;
+            container.appendChild(div);
+            this.buildGrid();
+        }
+
+        buildGrid() {
+            const head = document.getElementById(`head-${this.id}`);
+            const body = document.getElementById(`body-${this.id}`);
+            head.innerHTML = '<th></th>' + Array(parseInt(this.cols)).fill().map((_, i) => `<th>${this.getColLabel(i)}</th>`).join('');
+            body.innerHTML = '';
+            for (let r = 0; r < this.rows; r++) {
+                let tr = document.createElement('tr');
+                tr.innerHTML = `<th>${r + 1}</th>` + Array(parseInt(this.cols)).fill().map((_, c) => {
+                    const val = this.data[r][c] || "";
+                    return `<td><input id="cell-${this.id}-${r}-${c}" value="${val}" onchange="sequencers[${this.id}].data[${r}][${c}] = this.value"></td>`;
+                }).join('');
+                body.appendChild(tr);
+            }
+        }
+
+        getColLabel(i) {
+            let label = "";
+            while (i >= 0) { label = String.fromCharCode((i % 26) + 65) + label; i = Math.floor(i / 26) - 1; }
+            return label;
+        }
+
+        updateCols(val) { this.cols = parseInt(val); this.buildGrid(); }
+
+        confirmDemo() {
+            if (confirm("Do you want to add the demo setup?")) {
+                this.data[0][0] = "220";  // A1
+                this.data[0][4] = "0";    // E1
+                this.data[1][4] = "=A1*3/2"; // E2
+                this.buildGrid();
+            }
+        }
+
+        importCSV(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const lines = e.target.result.split('\n');
+                lines.forEach((line, r) => {
+                    if (r < this.rows) {
+                        const cells = line.split(',');
+                        cells.forEach((val, c) => {
+                            if (c < 64) this.data[r][c] = val.trim();
+                        });
+                    }
+                });
+                this.buildGrid();
+            };
+            reader.readAsText(file);
+        }
+
+        evaluateCell(r, c) {
+            let val = (this.data[r][c] || "").toString().trim();
+            if (!val) return null;
+            if (val.startsWith('=')) {
+                try {
+                    let formula = val.substring(1).toUpperCase();
+                    formula = formula.replace(/([A-Z]+)([0-9]+)/g, (match, colStr, rowStr) => {
+                        let cIdx = 0;
+                        for(let i=0; i<colStr.length; i++) cIdx = cIdx * 26 + (colStr.charCodeAt(i) - 64);
+                        return this.evaluateCell(parseInt(rowStr) - 1, cIdx - 1) || 0;
+                    });
+                    return eval(formula) || 0;
+                } catch(e) { return 0; }
+            }
+            return parseFloat(val) || 0;
+        }
+
+        playStep(globalStep, time) {
+            const localStep = globalStep % this.cols;
+            const cells = document.querySelectorAll(`#seq-box-${this.id} .current-step-cell`);
+            cells.forEach(c => c.classList.remove('current-step-cell'));
+
+            for (let r = 0; r < this.rows; r++) {
+                const hz = this.evaluateCell(r, localStep);
+                const inputEl = document.getElementById(`cell-${this.id}-${r}-${localStep}`);
+                if (inputEl) inputEl.parentElement.classList.add('current-step-cell');
+
+                if (this.data[r][localStep] !== "") {
+                    this.stopRow(r, time);
+                    if (hz > 0) {
+                        this.startRow(r, hz, time);
+                    }
+                }
+            }
+        }
+
+        async loadSF2(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const ab = await file.arrayBuffer();
+            this.sf2Synth = new SpessaSynth.Synthesizer(audioCtx.destination, ab);
+            alert("SF2 Loaded into Sequencer #" + (this.id + 1));
+        }
+
+        async loadSample(input) {
+            const ab = await input.files[0].arrayBuffer();
+            this.sampleBuffer = await audioCtx.decodeAudioData(ab);
+        }
+
+        startRow(r, hz, time) {
+            const chan = r % 16;
+            const midiNoteFloat = 12 * Math.log2(hz / 440) + 69;
+            const note = Math.round(midiNoteFloat);
+            const bend = Math.floor((midiNoteFloat - note) * 4096 + 8192);
+
+            if (this.sf2Synth) {
+                this.sf2Synth.midiMessage(0xE0 + chan, bend & 0x7F, (bend >> 7) & 0x7F);
+                this.sf2Synth.midiMessage(0x90 + chan, Math.max(0, Math.min(127, note)), 100);
+                this.activeSources[r] = { type: 'sf2', note: note, chan: chan, hz: hz };
+            } else if (this.sampleBuffer) {
+                let src = audioCtx.createBufferSource();
+                src.buffer = this.sampleBuffer;
+                src.playbackRate.setValueAtTime(hz / this.rootHz, time);
+                src.connect(audioCtx.destination);
+                src.start(time);
+                this.activeSources[r] = { node: src, hz: hz };
+            } else {
+                let osc = audioCtx.createOscillator();
+                let g = audioCtx.createGain();
+                osc.frequency.setValueAtTime(hz, time);
+                g.gain.setValueAtTime(0.12, time);
+                osc.connect(g).connect(audioCtx.destination);
+                osc.start(time);
+                this.activeSources[r] = { osc: osc, g: g, hz: hz };
+            }
+
+            if (midiOutDevice) {
+                midiOutDevice.send([0xE0 + chan, bend & 0x7F, (bend >> 7) & 0x7F]);
+                midiOutDevice.send([0x90 + chan, Math.max(0, Math.min(127, note)), 90]);
+            }
+        }
+
+        stopRow(r, time) {
+            if (this.activeSources[r]) {
+                const s = this.activeSources[r];
+                if (s.type === 'sf2') {
+                    this.sf2Synth.midiMessage(0x80 + s.chan, s.note, 0);
+                } else if (s.node) {
+                    s.node.stop(time);
+                } else if (s.osc) {
+                    s.g.gain.setTargetAtTime(0, time, 0.01);
+                    s.osc.stop(time + 0.05);
+                }
+                this.activeSources[r] = null;
+                if (midiOutDevice) midiOutDevice.send([0x80 + (r % 16), 60, 0]);
+            }
+        }
+
+        kill(time) { for (let r = 0; r < this.rows; r++) this.stopRow(r, time); }
+
+        exportCSV() {
+            let csv = this.data.map(row => row.slice(0, this.cols).join(',')).join('\n');
+            const blob = new Blob([csv], {type: 'text/csv'});
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = `seq-${this.id}.csv`; a.click();
+        }
+    }
+
+    // --- Globaali Ohjaus ---
+
+    function togglePlay() {
+        if (isPlaying) {
+            isPlaying = false;
+            document.getElementById('playBtn').innerText = "PLAY";
+            clearTimeout(timerID);
+        } else {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            isPlaying = true;
+            document.getElementById('playBtn').innerText = "PAUSE";
+            nextStepTime = audioCtx.currentTime;
+            scheduler();
+        }
+    }
+
+    function stopAll() {
+        isPlaying = false;
+        document.getElementById('playBtn').innerText = "PLAY";
+        clearTimeout(timerID);
+        sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
+        masterStep = 0;
+        updateUI();
+    }
+
+    function resetToStart() {
+        sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
+        masterStep = 0;
+        updateUI();
+    }
+
+    function scheduler() {
+        while (nextStepTime < audioCtx.currentTime + 0.1 && isPlaying) {
+            sequencers.forEach(s => s && s.playStep(masterStep, nextStepTime));
+            let stepDur = 60 / document.getElementById('bpm').value / 4;
+            nextStepTime += stepDur;
+            masterStep++;
+        }
+        if (isPlaying) timerID = setTimeout(scheduler, 25);
+    }
+
+    function updateUI() {
+        document.querySelectorAll('.current-step-cell').forEach(el => el.classList.remove('current-step-cell'));
+    }
+
+    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
+    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
+
+    function exportAllMidi() {
+        const midi = new Midi();
+        const bpm = document.getElementById('bpm').value;
+        midi.header.setTempo(bpm);
+        sequencers.forEach(s => {
+            if (!s) return;
+            const track = midi.addTrack();
+            const stepDur = 60 / bpm / 4;
+            for (let r = 0; r < s.rows; r++) {
+                let lastHz = 0, startTime = 0;
+                for (let c = 0; c < 64; c++) {
+                    let hz = s.evaluateCell(r, c % s.cols);
+                    let raw = s.data[r][c % s.cols];
+                    if (raw !== "") {
+                        if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
+                        lastHz = hz; startTime = c * stepDur;
+                    }
+                }
+                if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: stepDur });
+            }
+        });
+        const blob = new Blob([midi.toArray()], {type: "audio/midi"});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = "sequencer_pro.mid"; a.click();
+    }
+
+    function toggleVisualizer() {
+        const el = document.getElementById('visualizer-overlay');
+        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
+        if (el.style.display === 'flex') drawCircles();
+    }
+
+    function drawCircles() {
+        const canvas = document.getElementById('circleCanvas');
+        const ctx = canvas.getContext('2d');
+        const cx = canvas.width/2, cy = canvas.height/2;
+
+        function frame() {
+            ctx.fillStyle = 'rgba(10,10,12, 0.2)';
+            ctx.fillRect(0,0, canvas.width, canvas.height);
+            for(let i=1; i<=10; i++) {
+                ctx.beginPath(); ctx.arc(cx, cy, i*35, 0, Math.PI*2);
+                ctx.strokeStyle = '#1e1e24'; ctx.stroke();
+            }
+            ctx.beginPath(); ctx.moveTo(cx, cy-350); ctx.lineTo(cx, cy);
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+
+            // Käydään läpi kaikki sekvensserit ja niiden aktiiviset äänet
+            sequencers.forEach(seq => {
+                if (!seq) return;
+                seq.activeSources.forEach(s => {
+                    if (s && s.hz > 0) {
+                        const hz = s.hz;
+                        const oct = Math.log2(hz/27.5);
+                        const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35;
+                        const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
+                        const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
+
+                        ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI*2);
+                        ctx.fillStyle = `hsla(${(hz % 360)}, 80%, 60%, 0.9)`; ctx.fill();
+                        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
+                        ctx.fillStyle = `#fff`; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
+                        ctx.fillText(Math.round(hz) + "Hz", x, y - 18);
+                    }
+                });
+            });
+
+            if (document.getElementById('visualizer-overlay').style.display === 'flex') requestAnimationFrame(frame);
+        }
+        frame();
+    }
+
+    addNewSequencer();
+
+    window.onkeydown = (e) => {
+        if (e.code === "Space" && e.target.tagName !== "INPUT") { e.preventDefault(); togglePlay(); }
+        if (e.code === "Escape") stopAll();
+    };
+</script>
+</body>
+</html>
