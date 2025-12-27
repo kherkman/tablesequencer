@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel-Synth Master Pro 2025 - Full Session Control</title>
+    <title>Excel-Synth Master Pro 2025 - SF2 & Keyboard Edition</title>
     <style>
         :root {
             --bg: #0a0a0b;
@@ -11,7 +11,7 @@
             --accent: #00ff95;
             --text: #e0e0e0;
             --border: #2a2a2e;
-            --highlight: rgba(0, 255, 149, 0.15);
+            --highlight: rgba(0, 255, 149, 0.2);
         }
 
         body {
@@ -23,18 +23,19 @@
         }
 
         header {
-            display: flex; gap: 15px; flex-wrap: wrap;
+            display: flex; gap: 12px; flex-wrap: wrap;
             background: var(--panel); padding: 20px;
             border-radius: 12px; margin-bottom: 25px;
-            border: 1px solid var(--border); width: 100%; max-width: 1200px;
+            border: 1px solid var(--border); width: 100%; max-width: 1240px;
             align-items: center; justify-content: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
 
         .sequencer-instance {
             background: var(--panel); padding: 20px;
             border-radius: 12px; margin-bottom: 30px;
             border: 1px solid var(--border);
-            width: 100%; max-width: 1200px;
+            width: 100%; max-width: 1240px;
             position: relative;
         }
 
@@ -48,7 +49,7 @@
             background: #252529; color: var(--accent);
             border: 1px solid var(--accent); padding: 8px 16px;
             border-radius: 6px; cursor: pointer; font-weight: 600;
-            transition: 0.2s;
+            transition: 0.2s; font-size: 13px;
         }
 
         button:hover { background: var(--accent); color: #000; }
@@ -60,7 +61,7 @@
 
         .grid-container { overflow-x: auto; width: 100%; }
         table { border-collapse: collapse; background: #000; width: 100%; }
-        th, td { border: 1px solid var(--border); min-width: 70px; height: 35px; text-align: center; }
+        th, td { border: 1px solid var(--border); min-width: 75px; height: 35px; text-align: center; }
         th { background: #1a1a1f; color: #666; font-size: 11px; text-transform: uppercase; }
 
         td input {
@@ -77,39 +78,50 @@
         }
 
         .label-group { display: flex; flex-direction: column; font-size: 10px; color: #888; letter-spacing: 1px; }
+        .kb-hint { font-size: 9px; color: #555; margin-top: 2px; text-align: center; }
     </style>
 </head>
 <body>
 
 <header>
-    <button onclick="togglePlay()" id="playBtn">PLAY / PAUSE</button>
-    <button onclick="stopAll()">STOP</button>
-    <button onclick="resetToStart()">GO TO START</button>
     <div class="label-group">
-        <label>TEMPO BPM</label>
+        <button onclick="togglePlay()" id="playBtn">PLAY / PAUSE</button>
+        <span class="kb-hint">SPACE</span>
+    </div>
+    <div class="label-group">
+        <button onclick="stopAll()">STOP</button>
+        <span class="kb-hint">S</span>
+    </div>
+    <div class="label-group">
+        <button onclick="resetToStart()">GO TO START</button>
+        <span class="kb-hint">W</span>
+    </div>
+    <div class="label-group">
+        <label>BPM</label>
         <input type="number" id="bpm" value="120" style="width: 60px;">
     </div>
     <div class="label-group">
-        <label>MIDI OUT DEVICE</label>
+        <label>MIDI OUT</label>
         <select id="midiOutSelect"></select>
     </div>
     <button onclick="addNewSequencer()">+ ADD SEQUENCER</button>
-    <button onclick="saveSession()" style="border-color: #fff; color: #fff;">SAVE</button>
-    <button onclick="document.getElementById('session-loader').click()" style="border-color: #fff; color: #fff;">LOAD</button>
+    <button onclick="saveSession()">SAVE JSON</button>
+    <button onclick="document.getElementById('session-loader').click()">LOAD JSON</button>
     <input type="file" id="session-loader" hidden accept=".json" onchange="loadSession(event)">
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
-    <button onclick="alert('WAV Export: Press Play and record via System Audio.')">WAV EXPORT</button>
+    <button onclick="alert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
 </header>
 
 <div id="sequencers-container" style="width: 100%; display: flex; flex-direction: column; align-items: center;"></div>
 
 <div id="visualizer-overlay">
     <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
+    <div style="color:var(--accent); margin-bottom:10px;">A / D: Siirrä askelta (Pausella)</div>
     <canvas id="circleCanvas" width="800" height="800"></canvas>
 </div>
 
-<!-- Ulkoiset kirjastot MIDI-vientiin ja SF2-toistoon -->
+<!-- Kirjastot -->
 <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
 <script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
 
@@ -120,9 +132,9 @@
     let masterStep = 0;
     let nextStepTime = 0;
     let timerID = null;
+    let midiOutDevice = null;
 
     // MIDI Laitteet
-    let midiOutDevice = null;
     if (navigator.requestMIDIAccess) {
         navigator.requestMIDIAccess().then(access => {
             const select = document.getElementById('midiOutSelect');
@@ -161,17 +173,15 @@
             div.innerHTML = `
                 <div class="controls-row">
                     <strong>#${this.id + 1}</strong>
-                    <div class="label-group"><label>COLUMNS</label>
-                        <input type="number" id="cols-input-${this.id}" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
+                    <div class="label-group"><label>COLS</label>
+                        <input type="number" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
                     </div>
                     <button onclick="sequencers[${this.id}].confirmDemo()">DEMO SETUP</button>
                     <div class="label-group"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
-                    <div class="label-group"><label>SF2 LOAD</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
-                    <div class="label-group"><label>SAMP HZ</label><input type="number" id="root-hz-${this.id}" value="${this.rootHz}" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
-                    
+                    <div class="label-group"><label>SF2 FILE</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
+                    <div class="label-group"><label>SAMP HZ</label><input type="number" value="${this.rootHz}" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
                     <button onclick="document.getElementById('csv-import-${this.id}').click()">CSV IMPORT</button>
                     <input type="file" id="csv-import-${this.id}" hidden accept=".csv" onchange="sequencers[${this.id}].importCSV(this)">
-                    
                     <button onclick="sequencers[${this.id}].exportCSV()">CSV EXPORT</button>
                     <button onclick="removeSequencer(${this.id})" style="border-color: #444; color: #777;">REMOVE</button>
                 </div>
@@ -212,30 +222,20 @@
                 this.data[0][0] = "220";  // A1
                 this.data[0][4] = "0";    // E1
                 this.data[1][4] = "=A1*3/2"; // E2
+                this.data[1][8] = "0";    // I2
                 this.buildGrid();
             }
         }
 
         importCSV(input) {
-            const file = input.files[0];
-            if (!file) return;
             const reader = new FileReader();
             reader.onload = (e) => {
-                const lines = e.target.result.split('\n');
-                lines.forEach((line, r) => {
-                    if (r < this.rows) {
-                        const cells = line.split(',');
-                        cells.forEach((val, c) => {
-                            if (c < 64) {
-                                if(!this.data[r]) this.data[r] = [];
-                                this.data[r][c] = val.trim();
-                            }
-                        });
-                    }
+                e.target.result.split('\n').forEach((line, r) => {
+                    if (r < this.rows) line.split(',').forEach((val, c) => { if (c < 64) this.data[r][c] = val.trim(); });
                 });
                 this.buildGrid();
             };
-            reader.readAsText(file);
+            reader.readAsText(input.files[0]);
         }
 
         evaluateCell(r, c) {
@@ -258,19 +258,16 @@
 
         playStep(globalStep, time) {
             const localStep = globalStep % this.cols;
-            const cells = document.querySelectorAll(`#seq-box-${this.id} .current-step-cell`);
-            cells.forEach(c => c.classList.remove('current-step-cell'));
+            const container = document.getElementById(`seq-box-${this.id}`);
+            container.querySelectorAll('.current-step-cell').forEach(c => c.classList.remove('current-step-cell'));
 
             for (let r = 0; r < this.rows; r++) {
                 const hz = this.evaluateCell(r, localStep);
                 const inputEl = document.getElementById(`cell-${this.id}-${r}-${localStep}`);
                 if (inputEl) inputEl.parentElement.classList.add('current-step-cell');
-
-                if (this.data[r] && this.data[r][localStep] !== "") {
+                if (this.data[r][localStep] !== "") {
                     this.stopRow(r, time);
-                    if (hz > 0) {
-                        this.startRow(r, hz, time);
-                    }
+                    if (hz > 0) this.startRow(r, hz, time);
                 }
             }
         }
@@ -279,8 +276,14 @@
             const file = input.files[0];
             if (!file) return;
             const ab = await file.arrayBuffer();
-            this.sf2Synth = new SpessaSynth.Synthesizer(audioCtx.destination, ab);
-            alert("SF2 Loaded into Sequencer #" + (this.id + 1));
+            const sf = new SpessaSynth.SoundFont2(ab);
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            this.sf2Synth = new SpessaSynth.Synthesizer(audioCtx.destination, sf);
+            for(let i=0; i<16; i++) {
+                this.sf2Synth.midiMessage(0xC0 + i, 0); // Program change to 0
+                this.sf2Synth.midiMessage(0xB0 + i, 121, 0); // Reset controllers
+            }
+            alert("SF2 Connected to Sequencer #" + (this.id + 1));
         }
 
         async loadSample(input) {
@@ -290,9 +293,9 @@
 
         startRow(r, hz, time) {
             const chan = r % 16;
-            const midiNoteFloat = 12 * Math.log2(hz / 440) + 69;
-            const note = Math.round(midiNoteFloat);
-            const bend = Math.floor((midiNoteFloat - note) * 4096 + 8192);
+            const mNoteF = 12 * Math.log2(hz / 440) + 69;
+            const note = Math.round(mNoteF);
+            const bend = Math.floor((mNoteF - note) * 4096 + 8192);
 
             if (this.sf2Synth) {
                 this.sf2Synth.midiMessage(0xE0 + chan, bend & 0x7F, (bend >> 7) & 0x7F);
@@ -327,7 +330,7 @@
                 if (s.type === 'sf2') {
                     this.sf2Synth.midiMessage(0x80 + s.chan, s.note, 0);
                 } else if (s.node) {
-                    s.node.stop(time);
+                    try { s.node.stop(time); } catch(e) {}
                 } else if (s.osc) {
                     s.g.gain.setTargetAtTime(0, time, 0.01);
                     s.osc.stop(time + 0.05);
@@ -347,63 +350,25 @@
         }
     }
 
-    // --- Globaali Ohjaus & Session ---
-
-    function saveSession() {
-        const session = {
-            bpm: document.getElementById('bpm').value,
-            sequencers: sequencers.filter(s => s !== null).map(s => ({
-                rows: s.rows,
-                cols: s.cols,
-                rootHz: s.rootHz,
-                data: s.data
-            }))
-        };
-        const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'synth-session.json';
-        a.click();
-    }
-
-    function loadSession(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const session = JSON.parse(e.target.result);
-            document.getElementById('bpm').value = session.bpm;
-            
-            // Tyhjennä nykyiset
-            stopAll();
-            document.getElementById('sequencers-container').innerHTML = '';
-            sequencers = [];
-            
-            // Luo uudet
-            session.sequencers.forEach((sData, idx) => {
-                const newSeq = new Sequencer(idx, sData);
-                sequencers.push(newSeq);
-            });
-        };
-        reader.readAsText(file);
-    }
+    // --- Ohjaus ---
 
     function togglePlay() {
-        if (isPlaying) {
-            isPlaying = false;
-            document.getElementById('playBtn').innerText = "PLAY";
-            clearTimeout(timerID);
+        if (isPlaying) { 
+            isPlaying = false; 
+            document.getElementById('playBtn').innerText = "PLAY"; 
+            clearTimeout(timerID); 
+            sequencers.forEach(s => s && s.kill(audioCtx.currentTime)); // PAUSE pysäyttää kaikki äänet
         } else {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            isPlaying = true;
+            isPlaying = true; 
             document.getElementById('playBtn').innerText = "PAUSE";
-            nextStepTime = audioCtx.currentTime;
+            nextStepTime = audioCtx.currentTime; 
             scheduler();
         }
     }
 
     function stopAll() {
-        isPlaying = false;
+        isPlaying = false; 
         document.getElementById('playBtn').innerText = "PLAY";
         clearTimeout(timerID);
         sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
@@ -420,8 +385,7 @@
     function scheduler() {
         while (nextStepTime < audioCtx.currentTime + 0.1 && isPlaying) {
             sequencers.forEach(s => s && s.playStep(masterStep, nextStepTime));
-            let stepDur = 60 / document.getElementById('bpm').value / 4;
-            nextStepTime += stepDur;
+            nextStepTime += 60 / document.getElementById('bpm').value / 4;
             masterStep++;
         }
         if (isPlaying) timerID = setTimeout(scheduler, 25);
@@ -429,16 +393,40 @@
 
     function updateUI() {
         document.querySelectorAll('.current-step-cell').forEach(el => el.classList.remove('current-step-cell'));
+        sequencers.forEach(s => {
+            if (!s) return;
+            const local = masterStep % s.cols;
+            for(let r=0; r<s.rows; r++) {
+                const el = document.getElementById(`cell-${s.id}-${r}-${local}`);
+                if (el) el.parentElement.classList.add('current-step-cell');
+            }
+        });
     }
 
-    function addNewSequencer() { 
-        sequencers.push(new Sequencer(sequencers.length)); 
+    function saveSession() {
+        const session = { bpm: document.getElementById('bpm').value, sequencers: sequencers.filter(s => s !== null).map(s => ({ rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: s.data })) };
+        const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = 'session.json'; a.click();
     }
 
-    function removeSequencer(id) { 
-        document.getElementById(`seq-box-${id}`).remove(); 
-        sequencers[id] = null; 
+    function loadSession(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const session = JSON.parse(e.target.result);
+            document.getElementById('bpm').value = session.bpm;
+            stopAll();
+            document.getElementById('sequencers-container').innerHTML = '';
+            sequencers = [];
+            session.sequencers.forEach((sData, idx) => { sequencers.push(new Sequencer(idx, sData)); });
+        };
+        reader.readAsText(file);
     }
+
+    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
+    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
 
     function exportAllMidi() {
         const midi = new Midi();
@@ -452,8 +440,7 @@
                 let lastHz = 0, startTime = 0;
                 for (let c = 0; c < 64; c++) {
                     let hz = s.evaluateCell(r, c % s.cols);
-                    let raw = (s.data[r] && s.data[r][c % s.cols]) ? s.data[r][c % s.cols] : "";
-                    if (raw !== "") {
+                    if ((s.data[r] && s.data[r][c % s.cols]) !== "") {
                         if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
                         lastHz = hz; startTime = c * stepDur;
                     }
@@ -463,7 +450,7 @@
         });
         const blob = new Blob([midi.toArray()], {type: "audio/midi"});
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = "sequencer_pro.mid"; a.click();
+        a.download = "export.mid"; a.click();
     }
 
     function toggleVisualizer() {
@@ -478,7 +465,7 @@
         const cx = canvas.width/2, cy = canvas.height/2;
 
         function frame() {
-            ctx.fillStyle = 'rgba(10,10,12, 0.2)';
+            ctx.fillStyle = 'rgba(10,10,12, 0.25)';
             ctx.fillRect(0,0, canvas.width, canvas.height);
             for(let i=1; i<=10; i++) {
                 ctx.beginPath(); ctx.arc(cx, cy, i*35, 0, Math.PI*2);
@@ -497,10 +484,10 @@
                         const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
                         const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
 
-                        ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI*2);
-                        ctx.fillStyle = `hsla(${(hz % 360)}, 80%, 60%, 0.9)`; ctx.fill();
-                        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
-                        ctx.fillStyle = `#fff`; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
+                        ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI*2);
+                        ctx.fillStyle = `hsla(${(hz % 360)}, 85%, 60%, 1)`; ctx.fill();
+                        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+                        ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
                         ctx.fillText(Math.round(hz) + "Hz", x, y - 18);
                     }
                 });
@@ -514,7 +501,15 @@
     addNewSequencer();
 
     window.onkeydown = (e) => {
-        if (e.code === "Space" && e.target.tagName !== "INPUT") { e.preventDefault(); togglePlay(); }
+        if (e.target.tagName === "INPUT") return;
+        const key = e.key.toLowerCase();
+        if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+        if (key === "s") stopAll();
+        if (key === "w") resetToStart();
+        if (!isPlaying) {
+            if (key === "a") { masterStep = Math.max(0, masterStep - 1); updateUI(); }
+            if (key === "d") { masterStep++; updateUI(); }
+        }
         if (e.code === "Escape") stopAll();
     };
 </script>
