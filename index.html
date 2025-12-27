@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel-Synth Master Pro 2025 - SF2 & Keyboard Edition</title>
+    <title>Excel-Synth Master Pro 2025 - Professional Edition</title>
     <style>
         :root {
             --bg: #0a0a0b;
@@ -50,6 +50,7 @@
             border: 1px solid var(--accent); padding: 8px 16px;
             border-radius: 6px; cursor: pointer; font-weight: 600;
             transition: 0.2s; font-size: 13px;
+            text-transform: uppercase;
         }
 
         button:hover { background: var(--accent); color: #000; }
@@ -71,10 +72,15 @@
         
         .current-step-cell { background: var(--highlight) !important; box-shadow: inset 0 0 5px var(--accent); }
 
-        #visualizer-overlay {
+        .overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.96); display: none;
             flex-direction: column; align-items: center; justify-content: center; z-index: 1000;
+        }
+
+        .overlay-content {
+            background: var(--panel); padding: 40px; border-radius: 20px;
+            border: 1px solid var(--accent); text-align: center; max-width: 500px;
         }
 
         .label-group { display: flex; flex-direction: column; font-size: 10px; color: #888; letter-spacing: 1px; }
@@ -108,6 +114,7 @@
     <button onclick="saveSession()">SAVE JSON</button>
     <button onclick="document.getElementById('session-loader').click()">LOAD JSON</button>
     <input type="file" id="session-loader" hidden accept=".json" onchange="loadSession(event)">
+    <button onclick="toggleInfo()" style="border-color: #55acee; color: #55acee;">INFO</button>
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
     <button onclick="alert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
@@ -115,7 +122,22 @@
 
 <div id="sequencers-container" style="width: 100%; display: flex; flex-direction: column; align-items: center;"></div>
 
-<div id="visualizer-overlay">
+<!-- Info Overlay -->
+<div id="info-overlay" class="overlay">
+    <div class="overlay-content">
+        <h2 style="color:var(--accent)">Excel-Synth Info</h2>
+        <p style="font-size: 18px; line-height: 1.6;">Insert herz or formulas to the cells.</p>
+        <p style="color:#888; font-size: 14px; margin-top: 20px;">
+            Esimerkki: 440 (Hz) tai =A1*3/2 (kaava)<br>
+            Pausella: A/D siirtää lukupäätä.<br>
+            W: Alkuun | S: Stop | Space: Play
+        </p>
+        <button onclick="toggleInfo()" style="margin-top: 30px;">CLOSE</button>
+    </div>
+</div>
+
+<!-- Visualizer Overlay -->
+<div id="visualizer-overlay" class="overlay">
     <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
     <div style="color:var(--accent); margin-bottom:10px;">A / D: Siirrä askelta (Pausella)</div>
     <canvas id="circleCanvas" width="800" height="800"></canvas>
@@ -219,10 +241,10 @@
 
         confirmDemo() {
             if (confirm("Do you want to add the demo setup?")) {
-                this.data[0][0] = "220";  // A1
-                this.data[0][4] = "0";    // E1
-                this.data[1][4] = "=A1*3/2"; // E2
-                this.data[1][8] = "0";    // I2
+                this.data[0][0] = "220";      // A1
+                this.data[0][4] = "0";        // E1
+                this.data[1][4] = "=A1*3/2";  // E2
+                this.data[1][8] = "0";        // I2 (siirretty pyynnöstä I1:stä)
                 this.buildGrid();
             }
         }
@@ -280,10 +302,10 @@
             if (audioCtx.state === 'suspended') await audioCtx.resume();
             this.sf2Synth = new SpessaSynth.Synthesizer(audioCtx.destination, sf);
             for(let i=0; i<16; i++) {
-                this.sf2Synth.midiMessage(0xC0 + i, 0); // Program change to 0
-                this.sf2Synth.midiMessage(0xB0 + i, 121, 0); // Reset controllers
+                this.sf2Synth.midiMessage(0xC0 + i, 0); 
+                this.sf2Synth.midiMessage(0xB0 + i, 121, 0);
             }
-            alert("SF2 Connected to Sequencer #" + (this.id + 1));
+            alert("SF2 Loaded Successfully.");
         }
 
         async loadSample(input) {
@@ -357,7 +379,7 @@
             isPlaying = false; 
             document.getElementById('playBtn').innerText = "PLAY"; 
             clearTimeout(timerID); 
-            sequencers.forEach(s => s && s.kill(audioCtx.currentTime)); // PAUSE pysäyttää kaikki äänet
+            sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
         } else {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             isPlaying = true; 
@@ -403,54 +425,9 @@
         });
     }
 
-    function saveSession() {
-        const session = { bpm: document.getElementById('bpm').value, sequencers: sequencers.filter(s => s !== null).map(s => ({ rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: s.data })) };
-        const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = 'session.json'; a.click();
-    }
-
-    function loadSession(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const session = JSON.parse(e.target.result);
-            document.getElementById('bpm').value = session.bpm;
-            stopAll();
-            document.getElementById('sequencers-container').innerHTML = '';
-            sequencers = [];
-            session.sequencers.forEach((sData, idx) => { sequencers.push(new Sequencer(idx, sData)); });
-        };
-        reader.readAsText(file);
-    }
-
-    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
-    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
-
-    function exportAllMidi() {
-        const midi = new Midi();
-        const bpm = document.getElementById('bpm').value;
-        midi.header.setTempo(bpm);
-        sequencers.forEach(s => {
-            if (!s) return;
-            const track = midi.addTrack();
-            const stepDur = 60 / bpm / 4;
-            for (let r = 0; r < s.rows; r++) {
-                let lastHz = 0, startTime = 0;
-                for (let c = 0; c < 64; c++) {
-                    let hz = s.evaluateCell(r, c % s.cols);
-                    if ((s.data[r] && s.data[r][c % s.cols]) !== "") {
-                        if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
-                        lastHz = hz; startTime = c * stepDur;
-                    }
-                }
-                if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: stepDur });
-            }
-        });
-        const blob = new Blob([midi.toArray()], {type: "audio/midi"});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = "export.mid"; a.click();
+    function toggleInfo() {
+        const el = document.getElementById('info-overlay');
+        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
     }
 
     function toggleVisualizer() {
@@ -498,7 +475,55 @@
         frame();
     }
 
-    addNewSequencer();
+    function saveSession() {
+        const session = { bpm: document.getElementById('bpm').value, sequencers: sequencers.filter(s => s !== null).map(s => ({ rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: s.data })) };
+        const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = 'synth_session.json'; a.click();
+    }
+
+    function loadSession(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const session = JSON.parse(e.target.result);
+            document.getElementById('bpm').value = session.bpm;
+            stopAll();
+            document.getElementById('sequencers-container').innerHTML = '';
+            sequencers = [];
+            session.sequencers.forEach((sData, idx) => { sequencers.push(new Sequencer(idx, sData)); });
+        };
+        reader.readAsText(file);
+    }
+
+    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
+    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
+
+    function exportAllMidi() {
+        const midi = new Midi();
+        const bpm = document.getElementById('bpm').value;
+        midi.header.setTempo(bpm);
+        sequencers.forEach(s => {
+            if (!s) return;
+            const track = midi.addTrack();
+            const stepDur = 60 / bpm / 4;
+            for (let r = 0; r < s.rows; r++) {
+                let lastHz = 0, startTime = 0;
+                for (let c = 0; c < 64; c++) {
+                    let hz = s.evaluateCell(r, c % s.cols);
+                    if ((s.data[r] && s.data[r][c % s.cols]) !== "") {
+                        if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
+                        lastHz = hz; startTime = c * stepDur;
+                    }
+                }
+                if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: stepDur });
+            }
+        });
+        const blob = new Blob([midi.toArray()], {type: "audio/midi"});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+        a.download = "session_export.mid"; a.click();
+    }
 
     window.onkeydown = (e) => {
         if (e.target.tagName === "INPUT") return;
@@ -510,8 +535,9 @@
             if (key === "a") { masterStep = Math.max(0, masterStep - 1); updateUI(); }
             if (key === "d") { masterStep++; updateUI(); }
         }
-        if (e.code === "Escape") stopAll();
     };
+
+    addNewSequencer();
 </script>
 </body>
 </html>
