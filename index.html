@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel-Synth Master Pro 2025 - SF2 & Visual Pro</title>
+    <title>Excel-Synth Master Pro 2025 - Full Session Control</title>
     <style>
         :root {
             --bg: #0a0a0b;
@@ -94,6 +94,9 @@
         <select id="midiOutSelect"></select>
     </div>
     <button onclick="addNewSequencer()">+ ADD SEQUENCER</button>
+    <button onclick="saveSession()" style="border-color: #fff; color: #fff;">SAVE</button>
+    <button onclick="document.getElementById('session-loader').click()" style="border-color: #fff; color: #fff;">LOAD</button>
+    <input type="file" id="session-loader" hidden accept=".json" onchange="loadSession(event)">
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
     <button onclick="alert('WAV Export: Press Play and record via System Audio.')">WAV EXPORT</button>
@@ -138,14 +141,14 @@
     }
 
     class Sequencer {
-        constructor(id) {
+        constructor(id, loadedData = null) {
             this.id = id;
-            this.rows = 8;
-            this.cols = 16;
-            this.data = Array(this.rows).fill().map(() => Array(64).fill(""));
+            this.rows = loadedData ? loadedData.rows : 8;
+            this.cols = loadedData ? loadedData.cols : 16;
+            this.data = loadedData ? loadedData.data : Array(this.rows).fill().map(() => Array(64).fill(""));
             this.sampleBuffer = null;
             this.sf2Synth = null;
-            this.rootHz = 440;
+            this.rootHz = loadedData ? loadedData.rootHz : 440;
             this.activeSources = Array(this.rows).fill(null);
             this.render();
         }
@@ -159,12 +162,12 @@
                 <div class="controls-row">
                     <strong>#${this.id + 1}</strong>
                     <div class="label-group"><label>COLUMNS</label>
-                        <input type="number" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
+                        <input type="number" id="cols-input-${this.id}" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
                     </div>
                     <button onclick="sequencers[${this.id}].confirmDemo()">DEMO SETUP</button>
                     <div class="label-group"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
                     <div class="label-group"><label>SF2 LOAD</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
-                    <div class="label-group"><label>SAMP HZ</label><input type="number" value="440" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
+                    <div class="label-group"><label>SAMP HZ</label><input type="number" id="root-hz-${this.id}" value="${this.rootHz}" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
                     
                     <button onclick="document.getElementById('csv-import-${this.id}').click()">CSV IMPORT</button>
                     <input type="file" id="csv-import-${this.id}" hidden accept=".csv" onchange="sequencers[${this.id}].importCSV(this)">
@@ -189,7 +192,7 @@
             for (let r = 0; r < this.rows; r++) {
                 let tr = document.createElement('tr');
                 tr.innerHTML = `<th>${r + 1}</th>` + Array(parseInt(this.cols)).fill().map((_, c) => {
-                    const val = this.data[r][c] || "";
+                    const val = (this.data[r] && this.data[r][c]) ? this.data[r][c] : "";
                     return `<td><input id="cell-${this.id}-${r}-${c}" value="${val}" onchange="sequencers[${this.id}].data[${r}][${c}] = this.value"></td>`;
                 }).join('');
                 body.appendChild(tr);
@@ -223,7 +226,10 @@
                     if (r < this.rows) {
                         const cells = line.split(',');
                         cells.forEach((val, c) => {
-                            if (c < 64) this.data[r][c] = val.trim();
+                            if (c < 64) {
+                                if(!this.data[r]) this.data[r] = [];
+                                this.data[r][c] = val.trim();
+                            }
                         });
                     }
                 });
@@ -233,7 +239,8 @@
         }
 
         evaluateCell(r, c) {
-            let val = (this.data[r][c] || "").toString().trim();
+            if (!this.data[r] || !this.data[r][c]) return null;
+            let val = this.data[r][c].toString().trim();
             if (!val) return null;
             if (val.startsWith('=')) {
                 try {
@@ -259,7 +266,7 @@
                 const inputEl = document.getElementById(`cell-${this.id}-${r}-${localStep}`);
                 if (inputEl) inputEl.parentElement.classList.add('current-step-cell');
 
-                if (this.data[r][localStep] !== "") {
+                if (this.data[r] && this.data[r][localStep] !== "") {
                     this.stopRow(r, time);
                     if (hz > 0) {
                         this.startRow(r, hz, time);
@@ -340,7 +347,46 @@
         }
     }
 
-    // --- Globaali Ohjaus ---
+    // --- Globaali Ohjaus & Session ---
+
+    function saveSession() {
+        const session = {
+            bpm: document.getElementById('bpm').value,
+            sequencers: sequencers.filter(s => s !== null).map(s => ({
+                rows: s.rows,
+                cols: s.cols,
+                rootHz: s.rootHz,
+                data: s.data
+            }))
+        };
+        const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'synth-session.json';
+        a.click();
+    }
+
+    function loadSession(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const session = JSON.parse(e.target.result);
+            document.getElementById('bpm').value = session.bpm;
+            
+            // Tyhjennä nykyiset
+            stopAll();
+            document.getElementById('sequencers-container').innerHTML = '';
+            sequencers = [];
+            
+            // Luo uudet
+            session.sequencers.forEach((sData, idx) => {
+                const newSeq = new Sequencer(idx, sData);
+                sequencers.push(newSeq);
+            });
+        };
+        reader.readAsText(file);
+    }
 
     function togglePlay() {
         if (isPlaying) {
@@ -385,8 +431,14 @@
         document.querySelectorAll('.current-step-cell').forEach(el => el.classList.remove('current-step-cell'));
     }
 
-    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
-    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
+    function addNewSequencer() { 
+        sequencers.push(new Sequencer(sequencers.length)); 
+    }
+
+    function removeSequencer(id) { 
+        document.getElementById(`seq-box-${id}`).remove(); 
+        sequencers[id] = null; 
+    }
 
     function exportAllMidi() {
         const midi = new Midi();
@@ -400,7 +452,7 @@
                 let lastHz = 0, startTime = 0;
                 for (let c = 0; c < 64; c++) {
                     let hz = s.evaluateCell(r, c % s.cols);
-                    let raw = s.data[r][c % s.cols];
+                    let raw = (s.data[r] && s.data[r][c % s.cols]) ? s.data[r][c % s.cols] : "";
                     if (raw !== "") {
                         if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
                         lastHz = hz; startTime = c * stepDur;
@@ -435,7 +487,6 @@
             ctx.beginPath(); ctx.moveTo(cx, cy-350); ctx.lineTo(cx, cy);
             ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
 
-            // Käydään läpi kaikki sekvensserit ja niiden aktiiviset äänet
             sequencers.forEach(seq => {
                 if (!seq) return;
                 seq.activeSources.forEach(s => {
