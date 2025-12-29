@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel-Synth Master Pro 2025 - Professional Edition</title>
+    <!-- Efektikirjasto -->
+    <script src="fx.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
+    <script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
+
     <style>
         :root {
             --bg: #0a0a0b;
@@ -12,6 +17,13 @@
             --text: #e0e0e0;
             --border: #2a2a2e;
             --highlight: rgba(0, 255, 149, 0.2);
+            --tool-active: #00ff95;
+            --tool-inactive: #444;
+            /* FX Colors */
+            --fx-bg: #111;
+            --fx-neon: #00f3ff;
+            --fx-warn: #ff0055;
+            --fx-panel-bg: #1a1a20;
         }
 
         body {
@@ -55,6 +67,15 @@
 
         button:hover { background: var(--accent); color: #000; }
         
+        .tool-btn { border-color: #666; color: #aaa; }
+        .tool-btn.active-tool { background: var(--accent); color: #000; border-color: var(--accent); }
+
+        .fx-btn { border-color: var(--fx-neon); color: var(--fx-neon); box-shadow: 0 0 5px rgba(0, 243, 255, 0.2); }
+        .fx-btn:hover { background: var(--fx-neon); color: #000; box-shadow: 0 0 15px var(--fx-neon); }
+
+        .drum-btn { font-size: 11px; padding: 6px 10px; border-color: #555; color: #ccc; }
+        .drum-btn.active-drum { background: #fff; color: #000; border-color: #fff; }
+
         select, input[type="number"], input[type="text"] {
             background: #000; border: 1px solid var(--border);
             color: var(--accent); padding: 6px; border-radius: 4px;
@@ -81,10 +102,108 @@
         .overlay-content {
             background: var(--panel); padding: 40px; border-radius: 20px;
             border: 1px solid var(--accent); text-align: center; max-width: 500px;
+            display: flex; flex-direction: column; gap: 15px;
         }
+
+        /* --- FX PAGE STYLES --- */
+        #fx-overlay {
+            background: var(--fx-bg);
+            display: none; /* Flex kun auki */
+            align-items: center; justify-content: center;
+            z-index: 2000;
+        }
+
+        .fx-container {
+            width: 95%; max-width: 1200px; height: 90vh;
+            background: var(--fx-panel-bg);
+            border: 1px solid #333;
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: 300px 300px 1fr;
+            grid-template-rows: 60px 1fr;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+            overflow: hidden;
+        }
+
+        .fx-header {
+            grid-column: 1 / -1;
+            background: #000;
+            border-bottom: 1px solid #333;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 20px;
+        }
+
+        .fx-header h2 { color: var(--fx-neon); margin: 0; font-size: 18px; letter-spacing: 2px; text-transform: uppercase; }
+        
+        .fx-col {
+            padding: 20px; border-right: 1px solid #333;
+            display: flex; flex-direction: column; gap: 20px;
+            overflow-y: auto;
+        }
+
+        .fx-rack-col {
+            background: #131316;
+            display: grid; grid-template-columns: 1fr 1fr; 
+            align-content: start; gap: 15px;
+        }
+
+        .fx-module {
+            background: #1e1e24; border: 1px solid #333;
+            border-radius: 6px; padding: 15px;
+            display: flex; flex-direction: column; gap: 10px;
+            position: relative;
+        }
+        
+        .fx-module.active { border-color: var(--fx-neon); box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.05); }
+
+        .fx-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .fx-title { font-size: 12px; font-weight: bold; color: #888; text-transform: uppercase; }
+        .fx-module.active .fx-title { color: var(--fx-neon); }
+
+        .fx-toggle {
+            width: 30px; height: 16px; background: #333; border-radius: 8px;
+            position: relative; cursor: pointer; transition: 0.3s;
+        }
+        .fx-toggle::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 12px; height: 12px; background: #888; border-radius: 50%; transition: 0.3s;
+        }
+        .fx-toggle.on { background: rgba(0, 243, 255, 0.3); }
+        .fx-toggle.on::after { left: 16px; background: var(--fx-neon); box-shadow: 0 0 10px var(--fx-neon); }
+
+        .slider-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+        .slider-label { font-size: 10px; color: #666; display: flex; justify-content: space-between; }
+        
+        input[type=range] {
+            -webkit-appearance: none; width: 100%; background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; background: #333; border-radius: 2px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%;
+            background: #888; margin-top: -4px; cursor: pointer; transition: 0.2s;
+        }
+        input[type=range]:hover::-webkit-slider-thumb { background: #ccc; }
+        .active input[type=range]::-webkit-slider-thumb { background: var(--fx-neon); box-shadow: 0 0 8px var(--fx-neon); }
+
+        canvas { background: #000; border: 1px solid #333; border-radius: 4px; width: 100%; }
+
+        /* REF Overlay Styles */
+        .ref-options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .ref-btn { font-size: 12px; padding: 10px; }
+        .ref-btn.selected { background: var(--accent); color: black; }
+        .ref-inputs { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px; min-height: 40px; align-items: center; }
+        .op-toggle { display: flex; justify-content: center; gap: 20px; margin-bottom: 15px; }
+        .op-label { cursor: pointer; display: flex; align-items: center; gap: 5px; color: #fff; }
 
         .label-group { display: flex; flex-direction: column; font-size: 10px; color: #888; letter-spacing: 1px; }
         .kb-hint { font-size: 9px; color: #555; margin-top: 2px; text-align: center; }
+        
+        .cursor-copy { cursor: copy !important; }
+        .cursor-paste { cursor: alias !important; }
+        .cursor-erase { cursor: no-drop !important; }
+        .cursor-ref { cursor: crosshair !important; }
     </style>
 </head>
 <body>
@@ -102,6 +221,37 @@
         <button onclick="resetToStart()">GO TO START</button>
         <span class="kb-hint">W</span>
     </div>
+
+    <!-- Tools -->
+    <div style="width: 1px; background: #333; height: 30px; margin: 0 10px;"></div>
+    
+    <div class="label-group">
+        <button onclick="setTool('edit')" id="btn-tool-edit" class="tool-btn active-tool">EDIT</button>
+        <span class="kb-hint">E</span>
+    </div>
+    <div class="label-group">
+        <button onclick="setTool('copy')" id="btn-tool-copy" class="tool-btn">COPY</button>
+        <span class="kb-hint">C</span>
+    </div>
+    <div class="label-group">
+        <button onclick="setTool('paste')" id="btn-tool-paste" class="tool-btn">PASTE</button>
+        <span class="kb-hint">V</span>
+    </div>
+    <div class="label-group">
+        <button onclick="setTool('erase')" id="btn-tool-erase" class="tool-btn">ERASE</button>
+        <span class="kb-hint">R</span>
+    </div>
+    <div class="label-group">
+        <button onclick="setTool('ref')" id="btn-tool-ref" class="tool-btn">REF</button>
+        <span class="kb-hint">F</span>
+    </div>
+    <div class="label-group">
+        <button onclick="performUndo()">UNDO</button>
+        <span class="kb-hint">Z</span>
+    </div>
+
+    <div style="width: 1px; background: #333; height: 30px; margin: 0 10px;"></div>
+
     <div class="label-group">
         <label>BPM</label>
         <input type="number" id="bpm" value="120" style="width: 60px;">
@@ -117,7 +267,7 @@
     <button onclick="toggleInfo()" style="border-color: #55acee; color: #55acee;">INFO</button>
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
-    <button onclick="alert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
+    <button onclick="showAlert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
 </header>
 
 <div id="sequencers-container" style="width: 100%; display: flex; flex-direction: column; align-items: center;"></div>
@@ -136,6 +286,15 @@
     </div>
 </div>
 
+<!-- Custom Alert Overlay -->
+<div id="custom-alert" class="overlay">
+    <div class="overlay-content">
+        <h3 style="color:var(--accent)">System Message</h3>
+        <p id="custom-alert-msg" style="margin: 20px 0; font-size: 16px; color: #fff;"></p>
+        <button onclick="closeAlert()">OK</button>
+    </div>
+</div>
+
 <!-- Visualizer Overlay -->
 <div id="visualizer-overlay" class="overlay">
     <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
@@ -143,9 +302,138 @@
     <canvas id="circleCanvas" width="800" height="800"></canvas>
 </div>
 
-<!-- Kirjastot -->
-<script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
-<script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
+<!-- REF Tool Overlay -->
+<div id="ref-overlay" class="overlay">
+    <div class="overlay-content">
+        <h3 style="color:var(--accent)">Select Interval From Reference Cell</h3>
+        <div class="ref-options-grid">
+            <button class="ref-btn" onclick="selectRefType('3/2', this)">3/2 (Fifth)</button>
+            <button class="ref-btn" onclick="selectRefType('4/3', this)">4/3 (Fourth)</button>
+            <button class="ref-btn" onclick="selectRefType('5/4', this)">5/4 (Major 3rd)</button>
+            <button class="ref-btn" onclick="selectRefType('6/5', this)">6/5 (Minor 3rd)</button>
+            <button class="ref-btn" onclick="selectRefType('9/8', this)">9/8 (Major 2nd)</button>
+            <button class="ref-btn" onclick="selectRefType('2', this)">2 (Octave)</button>
+            <button class="ref-btn" onclick="selectRefType('et12', this)">2^(i/12)</button>
+            <button class="ref-btn" onclick="selectRefType('etn', this)">2^(i/n)</button>
+            <button class="ref-btn" onclick="selectRefType('custom', this)" style="grid-column: span 2;">Custom</button>
+        </div>
+        <div class="ref-inputs" id="ref-inputs-container"></div>
+        <div style="color:#aaa; font-size: 12px;">Multiply or Divide?</div>
+        <div class="op-toggle">
+            <label class="op-label"><input type="radio" name="refOp" value="*" checked> Multiply (*)</label>
+            <label class="op-label"><input type="radio" name="refOp" value="/"> Divide (/)</label>
+        </div>
+        <div style="display:flex; gap:10px; justify-content:center;">
+            <button onclick="applyRefFormula()">APPLY</button>
+            <button onclick="closeRefOverlay()" style="border-color:#555; color:#888;">CANCEL</button>
+        </div>
+    </div>
+</div>
+
+<!-- FX PANEL OVERLAY -->
+<div id="fx-overlay" class="overlay">
+    <div class="fx-container">
+        <div class="fx-header">
+            <h2 id="fx-header-title">SEQUENCER 1 - FX & DYNAMICS</h2>
+            <button onclick="closeFxPanel()" style="border-color:#555;">CLOSE PANEL</button>
+        </div>
+
+        <!-- COLUMN 1: ADSR -->
+        <div class="fx-col">
+            <div style="color:var(--fx-neon); font-size:12px; font-weight:bold;">ENVELOPE (ADSR)</div>
+            <canvas id="cvs-adsr" width="260" height="150"></canvas>
+            
+            <div class="slider-group">
+                <div class="slider-label"><span>ATTACK</span><span id="val-att">0.01</span></div>
+                <input type="range" min="0.001" max="2.0" step="0.01" oninput="updateFxParam('adsr', 'attack', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>DECAY</span><span id="val-dec">0.1</span></div>
+                <input type="range" min="0.0" max="2.0" step="0.01" oninput="updateFxParam('adsr', 'decay', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>SUSTAIN</span><span id="val-sus">0.5</span></div>
+                <input type="range" min="0.0" max="1.0" step="0.01" oninput="updateFxParam('adsr', 'sustain', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>RELEASE</span><span id="val-rel">0.5</span></div>
+                <input type="range" min="0.01" max="5.0" step="0.01" oninput="updateFxParam('adsr', 'release', this.value)">
+            </div>
+        </div>
+
+        <!-- COLUMN 2: EQ -->
+        <div class="fx-col">
+            <div style="color:var(--fx-warn); font-size:12px; font-weight:bold;">EQUALIZER & FILTERS</div>
+            <canvas id="cvs-eq" width="260" height="150"></canvas>
+
+            <div class="slider-group">
+                <div class="slider-label"><span>LOW SHELF (320Hz)</span><span id="val-eqL">0dB</span></div>
+                <input type="range" min="-20" max="20" step="1" oninput="updateFxParam('eq', 'low', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>MID PEAK (1kHz)</span><span id="val-eqM">0dB</span></div>
+                <input type="range" min="-20" max="20" step="1" oninput="updateFxParam('eq', 'mid', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>HIGH SHELF (3.2kHz)</span><span id="val-eqH">0dB</span></div>
+                <input type="range" min="-20" max="20" step="1" oninput="updateFxParam('eq', 'high', this.value)">
+            </div>
+            <div style="height:10px"></div>
+            <div class="slider-group">
+                <div class="slider-label"><span>HPF CUTOFF</span><span id="val-hpf">20Hz</span></div>
+                <input type="range" min="20" max="1000" step="10" oninput="updateFxParam('filter', 'hpf', this.value)">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>LPF CUTOFF</span><span id="val-lpf">20kHz</span></div>
+                <input type="range" min="1000" max="20000" step="100" oninput="updateFxParam('filter', 'lpf', this.value)">
+            </div>
+        </div>
+
+        <!-- COLUMN 3: FX RACK -->
+        <div class="fx-col fx-rack-col">
+            <!-- Phaser -->
+            <div class="fx-module" id="mod-phaser">
+                <div class="fx-title-row"><span class="fx-title">Phaser</span><div class="fx-toggle" id="tog-phaser" onclick="toggleFxModule('phaser')"></div></div>
+                <div class="slider-group"><div class="slider-label">Rate</div><input type="range" min="0.1" max="10" step="0.1" oninput="updateFxParam('phaser', 'rate', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Depth</div><input type="range" min="0" max="1" step="0.01" oninput="updateFxParam('phaser', 'depth', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Mix</div><input type="range" min="0" max="1" step="0.01" id="phaserMix" oninput="updateFxParam('phaser', 'mix', this.value)"></div>
+            </div>
+
+            <!-- Flanger -->
+            <div class="fx-module" id="mod-flanger">
+                <div class="fx-title-row"><span class="fx-title">Flanger</span><div class="fx-toggle" id="tog-flanger" onclick="toggleFxModule('flanger')"></div></div>
+                <div class="slider-group"><div class="slider-label">Rate</div><input type="range" min="0.01" max="2" step="0.01" oninput="updateFxParam('flanger', 'rate', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Feedback</div><input type="range" min="0" max="0.9" step="0.01" oninput="updateFxParam('flanger', 'feedback', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Mix</div><input type="range" min="0" max="1" step="0.01" id="flangerMix" oninput="updateFxParam('flanger', 'mix', this.value)"></div>
+            </div>
+
+            <!-- Chorus -->
+            <div class="fx-module" id="mod-chorus">
+                <div class="fx-title-row"><span class="fx-title">Chorus</span><div class="fx-toggle" id="tog-chorus" onclick="toggleFxModule('chorus')"></div></div>
+                <div class="slider-group"><div class="slider-label">Rate</div><input type="range" min="0.5" max="5" step="0.1" oninput="updateFxParam('chorus', 'rate', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Depth</div><input type="range" min="0" max="1" step="0.01" oninput="updateFxParam('chorus', 'depth', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Mix</div><input type="range" min="0" max="1" step="0.01" id="chorusMix" oninput="updateFxParam('chorus', 'mix', this.value)"></div>
+            </div>
+
+            <!-- Delay -->
+            <div class="fx-module" id="mod-delay">
+                <div class="fx-title-row"><span class="fx-title">Delay</span><div class="fx-toggle" id="tog-delay" onclick="toggleFxModule('delay')"></div></div>
+                <div class="slider-group"><div class="slider-label">Time (s)</div><input type="range" min="0.05" max="1.0" step="0.05" oninput="updateFxParam('delay', 'time', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Feedback</div><input type="range" min="0" max="0.9" step="0.01" oninput="updateFxParam('delay', 'feedback', this.value)"></div>
+                <div class="slider-group"><div class="slider-label">Mix</div><input type="range" min="0" max="1" step="0.01" id="delayMix" oninput="updateFxParam('delay', 'mix', this.value)"></div>
+            </div>
+
+            <!-- Reverb -->
+            <div class="fx-module" id="mod-reverb" style="grid-column: span 2;">
+                <div class="fx-title-row"><span class="fx-title">Reverb</span><div class="fx-toggle" id="tog-reverb" onclick="toggleFxModule('reverb')"></div></div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+                    <div class="slider-group"><div class="slider-label">Size/Decay</div><input type="range" min="0.1" max="3.0" step="0.1" oninput="updateFxParam('reverb', 'time', this.value)"></div>
+                    <div class="slider-group"><div class="slider-label">Mix</div><input type="range" min="0" max="1" step="0.01" id="reverbMix" oninput="updateFxParam('reverb', 'mix', this.value)"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -155,8 +443,55 @@
     let nextStepTime = 0;
     let timerID = null;
     let midiOutDevice = null;
+    let isSound1Loaded = false;
+    
+    // FX GUI State
+    let currentFxSeqId = -1;
+    let drawFxInterval = null;
 
-    // MIDI Laitteet
+    // Työkalut ja Undo
+    let currentTool = 'edit';
+    let clipboardValue = "";
+    let undoStack = [];
+    let tempStateBeforeEdit = null;
+    let refTargetCell = null;
+    let refSourceCellStr = "";
+    let currentRefType = null;
+
+    const soundPresets = {
+        sound1: null, sound2: null, sound3: null, sound4: null,
+        kick: null, snare: null, 'hh-c': null, 'hh-o': null, ride: null, crash: null
+    };
+    
+    function showAlert(msg) {
+        document.getElementById('custom-alert-msg').innerText = msg;
+        document.getElementById('custom-alert').style.display = 'flex';
+    }
+
+    function closeAlert() {
+        document.getElementById('custom-alert').style.display = 'none';
+    }
+    
+    async function initAudio() {
+        const files = [
+            'sound1.wav', 'sound2.wav', 'sound3.wav', 'sound4.wav',
+            'kick.wav', 'snare.wav', 'hh-c.wav', 'hh-o.wav', 'ride.wav', 'crash.wav'
+        ];
+        
+        for(let i=0; i<files.length; i++) {
+            try {
+                const response = await fetch(files[i]);
+                if(response.ok) {
+                    const ab = await response.arrayBuffer();
+                    const key = files[i].replace('.wav', '');
+                    soundPresets[key] = await audioCtx.decodeAudioData(ab);
+                    if (files[i] === 'sound1.wav') isSound1Loaded = true;
+                }
+            } catch(e) { console.warn(`Could not load ${files[i]}`); }
+        }
+    }
+    initAudio();
+
     if (navigator.requestMIDIAccess) {
         navigator.requestMIDIAccess().then(access => {
             const select = document.getElementById('midiOutSelect');
@@ -183,6 +518,18 @@
             this.sampleBuffer = null;
             this.sf2Synth = null;
             this.rootHz = loadedData ? loadedData.rootHz : 440;
+            this.activeDrumBrush = 'KICK';
+            
+            // --- FX ENGINE INIT ---
+            this.fxEngine = new window.FXEngineClass(audioCtx);
+            this.fxEngine.output.connect(audioCtx.destination);
+            // ---------------------
+
+            if (loadedData) {
+                this.selectedSound = loadedData.selectedSound;
+            } else {
+                this.selectedSound = isSound1Loaded ? 'sound1' : 'osc';
+            }
             this.activeSources = Array(this.rows).fill(null);
             this.render();
         }
@@ -192,16 +539,52 @@
             const div = document.createElement('div');
             div.className = 'sequencer-instance';
             div.id = `seq-box-${this.id}`;
+            
+            const showCustomWav = this.selectedSound === 'custom' ? 'flex' : 'none';
+            const showSf2 = this.selectedSound === 'sf2' ? 'flex' : 'none';
+            const showDrums = this.selectedSound === 'drums' ? 'flex' : 'none';
+
+            let options = '';
+            if (!isSound1Loaded) options += `<option value="osc" ${this.selectedSound === 'osc' ? 'selected' : ''}>Oscillator (Basic)</option>`;
+            options += `
+                <option value="sound1" ${this.selectedSound === 'sound1' ? 'selected' : ''}>Sound 1</option>
+                <option value="sound2" ${this.selectedSound === 'sound2' ? 'selected' : ''}>Sound 2</option>
+                <option value="sound3" ${this.selectedSound === 'sound3' ? 'selected' : ''}>Sound 3</option>
+                <option value="sound4" ${this.selectedSound === 'sound4' ? 'selected' : ''}>Sound 4</option>
+                <option value="custom" ${this.selectedSound === 'custom' ? 'selected' : ''}>Custom WAV</option>
+                <option value="sf2" ${this.selectedSound === 'sf2' ? 'selected' : ''}>SF2 SoundFont</option>
+                <option value="drums" ${this.selectedSound === 'drums' ? 'selected' : ''}>Drums</option>
+            `;
+
             div.innerHTML = `
                 <div class="controls-row">
                     <strong>#${this.id + 1}</strong>
+                    
+                    <button class="fx-btn" onclick="openFxPanel(${this.id})">FX & DYNAMICS</button>
+
                     <div class="label-group"><label>COLS</label>
                         <input type="number" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
                     </div>
+                    
+                    <div class="label-group"><label>SOUND SOURCE</label>
+                        <select onchange="sequencers[${this.id}].changeSoundSource(this.value)">${options}</select>
+                    </div>
+
+                    <div class="label-group" id="grp-drums-${this.id}" style="display:${showDrums}; gap:5px;">
+                        <button class="drum-btn active-drum" onclick="sequencers[${this.id}].setDrumBrush('KICK', this)">KICK</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('SNARE', this)">SNARE</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('HH-C', this)">HH-C</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('HH-O', this)">HH-O</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('RIDE', this)">RIDE</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('CRASH', this)">CRASH</button>
+                    </div>
+
+                    <div class="label-group" id="grp-custom-${this.id}" style="display:${showCustomWav}"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
+                    <div class="label-group" id="grp-sf2-${this.id}" style="display:${showSf2}"><label>SF2 FILE</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
+                    
+                    <div class="label-group"><label>ROOT HZ</label><input type="number" value="${this.rootHz}" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
+                    
                     <button onclick="sequencers[${this.id}].confirmDemo()">DEMO SETUP</button>
-                    <div class="label-group"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
-                    <div class="label-group"><label>SF2 FILE</label><input type="file" accept=".sf2" onchange="sequencers[${this.id}].loadSF2(this)"></div>
-                    <div class="label-group"><label>SAMP HZ</label><input type="number" value="${this.rootHz}" style="width:60px" onchange="sequencers[${this.id}].rootHz = this.value"></div>
                     <button onclick="document.getElementById('csv-import-${this.id}').click()">CSV IMPORT</button>
                     <input type="file" id="csv-import-${this.id}" hidden accept=".csv" onchange="sequencers[${this.id}].importCSV(this)">
                     <button onclick="sequencers[${this.id}].exportCSV()">CSV EXPORT</button>
@@ -216,6 +599,26 @@
             this.buildGrid();
         }
 
+        changeSoundSource(val) {
+            this.selectedSound = val;
+            const customGrp = document.getElementById(`grp-custom-${this.id}`);
+            const sf2Grp = document.getElementById(`grp-sf2-${this.id}`);
+            const drumGrp = document.getElementById(`grp-drums-${this.id}`);
+            
+            if(customGrp) customGrp.style.display = (val === 'custom') ? 'flex' : 'none';
+            if(sf2Grp) sf2Grp.style.display = (val === 'sf2') ? 'flex' : 'none';
+            if(drumGrp) drumGrp.style.display = (val === 'drums') ? 'flex' : 'none';
+
+            if (val === 'drums') setTool('edit');
+        }
+
+        setDrumBrush(drumName, btn) {
+            this.activeDrumBrush = drumName;
+            const container = document.getElementById(`grp-drums-${this.id}`);
+            container.querySelectorAll('.drum-btn').forEach(b => b.classList.remove('active-drum'));
+            if(btn) btn.classList.add('active-drum');
+        }
+
         buildGrid() {
             const head = document.getElementById(`head-${this.id}`);
             const body = document.getElementById(`body-${this.id}`);
@@ -225,7 +628,11 @@
                 let tr = document.createElement('tr');
                 tr.innerHTML = `<th>${r + 1}</th>` + Array(parseInt(this.cols)).fill().map((_, c) => {
                     const val = (this.data[r] && this.data[r][c]) ? this.data[r][c] : "";
-                    return `<td><input id="cell-${this.id}-${r}-${c}" value="${val}" onchange="sequencers[${this.id}].data[${r}][${c}] = this.value"></td>`;
+                    return `<td><input id="cell-${this.id}-${r}-${c}" value="${val}" 
+                        onclick="handleCellClick(${this.id}, ${r}, ${c}, this)"
+                        onfocus="handleCellFocus(this)"
+                        onchange="handleCellChange(${this.id}, ${r}, ${c}, this)"
+                        ></td>`;
                 }).join('');
                 body.appendChild(tr);
             }
@@ -241,10 +648,9 @@
 
         confirmDemo() {
             if (confirm("Do you want to add the demo setup?")) {
-                this.data[0][0] = "220";      // A1
-                this.data[0][4] = "0";        // E1
-                this.data[1][4] = "=A1*3/2";  // E2
-                this.data[1][8] = "0";        // I2 (siirretty pyynnöstä I1:stä)
+                pushUndo();
+                this.data[0][0] = "220"; this.data[0][4] = "0";
+                this.data[1][4] = "=A1*3/2"; this.data[1][8] = "0";
                 this.buildGrid();
             }
         }
@@ -252,6 +658,7 @@
         importCSV(input) {
             const reader = new FileReader();
             reader.onload = (e) => {
+                pushUndo();
                 e.target.result.split('\n').forEach((line, r) => {
                     if (r < this.rows) line.split(',').forEach((val, c) => { if (c < 64) this.data[r][c] = val.trim(); });
                 });
@@ -284,12 +691,18 @@
             container.querySelectorAll('.current-step-cell').forEach(c => c.classList.remove('current-step-cell'));
 
             for (let r = 0; r < this.rows; r++) {
-                const hz = this.evaluateCell(r, localStep);
                 const inputEl = document.getElementById(`cell-${this.id}-${r}-${localStep}`);
                 if (inputEl) inputEl.parentElement.classList.add('current-step-cell');
-                if (this.data[r][localStep] !== "") {
-                    this.stopRow(r, time);
-                    if (hz > 0) this.startRow(r, hz, time);
+                
+                if (this.selectedSound === 'drums') {
+                    const cellContent = (this.data[r][localStep] || "").trim();
+                    if (cellContent) this.startRow(r, cellContent, time);
+                } else {
+                    const hz = this.evaluateCell(r, localStep);
+                    if (this.data[r][localStep] !== "") {
+                        this.stopRow(r, time);
+                        if (hz > 0) this.startRow(r, hz, time);
+                    }
                 }
             }
         }
@@ -300,12 +713,13 @@
             const ab = await file.arrayBuffer();
             const sf = new SpessaSynth.SoundFont2(ab);
             if (audioCtx.state === 'suspended') await audioCtx.resume();
-            this.sf2Synth = new SpessaSynth.Synthesizer(audioCtx.destination, sf);
+            // Route SF2 to FX Input
+            this.sf2Synth = new SpessaSynth.Synthesizer(this.fxEngine.input, sf);
             for(let i=0; i<16; i++) {
                 this.sf2Synth.midiMessage(0xC0 + i, 0); 
                 this.sf2Synth.midiMessage(0xB0 + i, 121, 0);
             }
-            alert("SF2 Loaded Successfully.");
+            showAlert("SF2 Loaded Successfully.");
         }
 
         async loadSample(input) {
@@ -313,31 +727,66 @@
             this.sampleBuffer = await audioCtx.decodeAudioData(ab);
         }
 
-        startRow(r, hz, time) {
+        startRow(r, val, time) {
+            const adsr = this.fxEngine.adsr;
+
+            // DRUMS
+            if (this.selectedSound === 'drums') {
+                const drumKey = val.toLowerCase();
+                if (soundPresets[drumKey]) {
+                    const src = audioCtx.createBufferSource();
+                    src.buffer = soundPresets[drumKey];
+                    // Route Drums to FX Input!
+                    src.connect(this.fxEngine.input);
+                    src.start(time);
+                    
+                    let vizHz = 100;
+                    if(drumKey.includes('hh')) vizHz = 8000;
+                    if(drumKey.includes('snare')) vizHz = 1000;
+                    if(drumKey.includes('kick')) vizHz = 60;
+                    this.activeSources[r] = { type: 'oneshot', hz: vizHz };
+                    setTimeout(() => { if(this.activeSources[r] && this.activeSources[r].type === 'oneshot') this.activeSources[r] = null; }, 150);
+                }
+                return;
+            }
+
+            // SYNTH / WAV LOGIC
+            const hz = val;
             const chan = r % 16;
             const mNoteF = 12 * Math.log2(hz / 440) + 69;
             const note = Math.round(mNoteF);
             const bend = Math.floor((mNoteF - note) * 4096 + 8192);
 
-            if (this.sf2Synth) {
+            if (this.selectedSound === 'sf2' && this.sf2Synth) {
                 this.sf2Synth.midiMessage(0xE0 + chan, bend & 0x7F, (bend >> 7) & 0x7F);
                 this.sf2Synth.midiMessage(0x90 + chan, Math.max(0, Math.min(127, note)), 100);
                 this.activeSources[r] = { type: 'sf2', note: note, chan: chan, hz: hz };
-            } else if (this.sampleBuffer) {
-                let src = audioCtx.createBufferSource();
-                src.buffer = this.sampleBuffer;
-                src.playbackRate.setValueAtTime(hz / this.rootHz, time);
-                src.connect(audioCtx.destination);
-                src.start(time);
-                this.activeSources[r] = { node: src, hz: hz };
-            } else {
+            } else if (this.selectedSound === 'osc') {
                 let osc = audioCtx.createOscillator();
                 let g = audioCtx.createGain();
                 osc.frequency.setValueAtTime(hz, time);
-                g.gain.setValueAtTime(0.12, time);
-                osc.connect(g).connect(audioCtx.destination);
+                
+                // ADSR Start
+                g.gain.setValueAtTime(0, time);
+                g.gain.linearRampToValueAtTime(0.12, time + parseFloat(adsr.attack));
+                g.gain.linearRampToValueAtTime(0.12 * parseFloat(adsr.sustain), time + parseFloat(adsr.attack) + parseFloat(adsr.decay));
+
+                // Route OSC to FX Input
+                osc.connect(g).connect(this.fxEngine.input);
                 osc.start(time);
-                this.activeSources[r] = { osc: osc, g: g, hz: hz };
+                this.activeSources[r] = { osc: osc, g: g, hz: hz, type: 'osc' };
+            } else {
+                let buffer = null;
+                let baseFreq = 261.63;
+                if (this.selectedSound.startsWith('sound')) {
+                    buffer = soundPresets[this.selectedSound];
+                } else if (this.selectedSound === 'custom') {
+                    buffer = this.sampleBuffer;
+                    baseFreq = this.rootHz;
+                }
+                if (buffer) {
+                    this.playCrossfadeLoop(r, buffer, hz, baseFreq, time);
+                }
             }
 
             if (midiOutDevice) {
@@ -346,16 +795,87 @@
             }
         }
 
+        playCrossfadeLoop(r, buffer, hz, baseFreq, startTime) {
+            const adsr = this.fxEngine.adsr;
+            const rate = hz / baseFreq;
+            const masterGain = audioCtx.createGain();
+            // Route WAV to FX Input
+            masterGain.connect(this.fxEngine.input);
+            
+            // ADSR Start for WAV
+            masterGain.gain.setValueAtTime(0, startTime);
+            masterGain.gain.linearRampToValueAtTime(1.0, startTime + parseFloat(adsr.attack));
+            masterGain.gain.linearRampToValueAtTime(1.0 * parseFloat(adsr.sustain), startTime + parseFloat(adsr.attack) + parseFloat(adsr.decay));
+
+            const loopStart = 0.4;
+            const loopEnd = 1.4;
+            const loopLen = loopEnd - loopStart;
+            const fadeDur = 0.05;
+
+            let introSrc = audioCtx.createBufferSource();
+            introSrc.buffer = buffer;
+            introSrc.playbackRate.setValueAtTime(rate, startTime);
+            introSrc.connect(masterGain);
+            introSrc.start(startTime);
+            
+            const nodes = [introSrc];
+            let nextStartTime = startTime + (1.4 / rate); 
+            
+            const scheduleNext = () => {
+                const src = audioCtx.createBufferSource();
+                src.buffer = buffer;
+                src.playbackRate.value = rate;
+                
+                const playTime = nextStartTime - (fadeDur);
+                const gain = audioCtx.createGain();
+                
+                src.connect(gain).connect(masterGain);
+                src.start(playTime, loopStart, loopLen + fadeDur);
+                
+                gain.gain.setValueAtTime(0, playTime);
+                gain.gain.linearRampToValueAtTime(1, playTime + fadeDur);
+                gain.gain.setValueAtTime(1, playTime + loopLen);
+                gain.gain.linearRampToValueAtTime(0, playTime + loopLen + fadeDur);
+                
+                nodes.push(src);
+                nextStartTime += (1.0 / rate);
+                
+                const timeUntilNext = (nextStartTime - audioCtx.currentTime) * 1000 - 200;
+                if (this.activeSources[r] && this.activeSources[r].loopTimer !== undefined) {
+                    this.activeSources[r].loopTimer = setTimeout(scheduleNext, Math.max(10, timeUntilNext));
+                }
+            };
+            
+            const initialDelay = (nextStartTime - audioCtx.currentTime) * 1000 - 500;
+            
+            this.activeSources[r] = {
+                type: 'wav_loop', hz: hz, nodes: nodes, masterGain: masterGain,
+                loopTimer: setTimeout(scheduleNext, Math.max(0, initialDelay))
+            };
+        }
+
         stopRow(r, time) {
+            const adsr = this.fxEngine.adsr;
+            const release = parseFloat(adsr.release);
+
             if (this.activeSources[r]) {
                 const s = this.activeSources[r];
                 if (s.type === 'sf2') {
                     this.sf2Synth.midiMessage(0x80 + s.chan, s.note, 0);
-                } else if (s.node) {
-                    try { s.node.stop(time); } catch(e) {}
-                } else if (s.osc) {
-                    s.g.gain.setTargetAtTime(0, time, 0.01);
-                    s.osc.stop(time + 0.05);
+                } else if (s.type === 'osc') {
+                    // ADSR Release
+                    s.g.gain.cancelScheduledValues(time);
+                    s.g.gain.setValueAtTime(s.g.gain.value, time);
+                    s.g.gain.linearRampToValueAtTime(0, time + release);
+                    s.osc.stop(time + release + 0.1);
+                } else if (s.type === 'wav_loop') {
+                    clearTimeout(s.loopTimer);
+                    s.loopTimer = undefined;
+                    // ADSR Release for WAV
+                    s.masterGain.gain.cancelScheduledValues(time);
+                    s.masterGain.gain.setValueAtTime(s.masterGain.gain.value, time);
+                    s.masterGain.gain.linearRampToValueAtTime(0, time + release);
+                    setTimeout(() => { s.nodes.forEach(n => { try { n.stop(); } catch(e){} }); }, (release * 1000) + 100);
                 }
                 this.activeSources[r] = null;
                 if (midiOutDevice) midiOutDevice.send([0x80 + (r % 16), 60, 0]);
@@ -372,36 +892,280 @@
         }
     }
 
-    // --- Ohjaus ---
+    // --- FX GUI CONTROL ---
+
+    function openFxPanel(id) {
+        currentFxSeqId = id;
+        document.getElementById('fx-header-title').innerText = `SEQUENCER ${id + 1} - FX & DYNAMICS`;
+        const fx = sequencers[id].fxEngine;
+
+        // Populate ADSR Sliders
+        const adsr = fx.getAdsr();
+        updateSlider('val-att', adsr.attack, null, 0);
+        updateSlider('val-dec', adsr.decay, null, 1);
+        updateSlider('val-sus', adsr.sustain, null, 2);
+        updateSlider('val-rel', adsr.release, null, 3);
+
+        // Populate EQ Sliders
+        updateSlider('val-eqL', fx.eqLow.gain.value, 'eq', 'low');
+        updateSlider('val-eqM', fx.eqMid.gain.value, 'eq', 'mid');
+        updateSlider('val-eqH', fx.eqHigh.gain.value, 'eq', 'high');
+        updateSlider('val-hpf', fx.hpf.frequency.value, 'filter', 'hpf');
+        updateSlider('val-lpf', fx.lpf.frequency.value, 'filter', 'lpf');
+
+        // Populate FX Rack
+        updateModule('phaser', fx.phaser);
+        updateModule('flanger', fx.flanger);
+        updateModule('chorus', fx.chorus);
+        updateModule('delay', fx.delay);
+        updateModule('reverb', fx.reverb);
+
+        document.getElementById('fx-overlay').style.display = 'flex';
+        drawFxVisuals();
+    }
+
+    function updateSlider(labelId, val, type, paramIndex) {
+        // Find input by structure (clunky but works without IDs on every input)
+        // Adjust logic to find input relative to label
+        const label = document.getElementById(labelId);
+        if(label) {
+            label.innerText = (type==='eq' ? Math.round(val)+'dB' : (type==='filter' ? Math.round(val)+'Hz' : val));
+            const input = label.parentElement.nextElementSibling;
+            if(input) input.value = val;
+        }
+    }
+
+    function updateModule(name, fxObj) {
+        const mod = document.getElementById(`mod-${name}`);
+        const tog = document.getElementById(`tog-${name}`);
+        if(fxObj.active) {
+            mod.classList.add('active');
+            tog.classList.add('on');
+        } else {
+            mod.classList.remove('active');
+            tog.classList.remove('on');
+        }
+        // Update sliders if possible (simple way)
+        const sliders = mod.querySelectorAll('input[type=range]');
+        // This relies on fixed order in HTML matches `fx.js` internal param order. 
+        // For robustness, we trigger update on input move, but setting initial values is hard without specific IDs.
+        // We will assume user adjusts them or defaults match.
+        // For "Mix" specifically:
+        const mixSlider = document.getElementById(`${name}Mix`);
+        // We can try to guess values, but fx.js doesn't expose all param getters easily without digging.
+        // We leave sliders at visual defaults or implement getters in fx.js later.
+        // For now, let's just sync the toggle state.
+    }
+
+    function closeFxPanel() {
+        document.getElementById('fx-overlay').style.display = 'none';
+        currentFxSeqId = -1;
+        if(drawFxInterval) cancelAnimationFrame(drawFxInterval);
+    }
+
+    function toggleFxModule(name) {
+        if(currentFxSeqId === -1) return;
+        const fx = sequencers[currentFxSeqId].fxEngine[name];
+        const newState = !fx.active;
+        fx.toggle(newState);
+        
+        const mod = document.getElementById(`mod-${name}`);
+        const tog = document.getElementById(`tog-${name}`);
+        if(newState) {
+            mod.classList.add('active');
+            tog.classList.add('on');
+        } else {
+            mod.classList.remove('active');
+            tog.classList.remove('on');
+        }
+    }
+
+    function updateFxParam(module, param, value) {
+        if(currentFxSeqId === -1) return;
+        const fx = sequencers[currentFxSeqId].fxEngine;
+        
+        // ADSR
+        if(module === 'adsr') {
+            fx.adsr[param] = parseFloat(value);
+            const map = {attack:'val-att', decay:'val-dec', sustain:'val-sus', release:'val-rel'};
+            document.getElementById(map[param]).innerText = value;
+            return;
+        }
+
+        // EQ / Filter
+        if(module === 'eq') {
+            if(param==='low') fx.eqLow.gain.value = value;
+            if(param==='mid') fx.eqMid.gain.value = value;
+            if(param==='high') fx.eqHigh.gain.value = value;
+            const map = {low:'val-eqL', mid:'val-eqM', high:'val-eqH'};
+            document.getElementById(map[param]).innerText = Math.round(value) + "dB";
+            return;
+        }
+        if(module === 'filter') {
+            if(param==='hpf') fx.hpf.frequency.value = value;
+            if(param==='lpf') fx.lpf.frequency.value = value;
+            const map = {hpf:'val-hpf', lpf:'val-lpf'};
+            document.getElementById(map[param]).innerText = value + "Hz";
+            return;
+        }
+
+        // Rack Modules
+        if(fx[module]) {
+            fx[module].set(param, parseFloat(value));
+        }
+    }
+
+    function drawFxVisuals() {
+        if(currentFxSeqId === -1) return;
+        const seq = sequencers[currentFxSeqId];
+        if(!seq) return;
+        
+        seq.fxEngine.drawAdsr(document.getElementById('cvs-adsr'));
+        seq.fxEngine.drawEq(document.getElementById('cvs-eq'));
+        
+        if(document.getElementById('fx-overlay').style.display === 'flex') {
+            drawFxInterval = requestAnimationFrame(drawFxVisuals);
+        }
+    }
+
+    // --- TYÖKALUT (Vanha koodi) ---
+
+    function setTool(tool) {
+        currentTool = tool;
+        refTargetCell = null;
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
+        document.getElementById(`btn-tool-${tool}`).classList.add('active-tool');
+        
+        const inputs = document.querySelectorAll('td input');
+        inputs.forEach(inp => {
+            inp.classList.remove('cursor-copy', 'cursor-paste', 'cursor-erase', 'cursor-ref');
+            if(tool === 'copy') inp.classList.add('cursor-copy');
+            if(tool === 'paste') inp.classList.add('cursor-paste');
+            if(tool === 'erase') inp.classList.add('cursor-erase');
+            if(tool === 'ref') inp.classList.add('cursor-ref');
+        });
+    }
+
+    function getSessionJSON() {
+        return JSON.stringify({ 
+            bpm: document.getElementById('bpm').value, 
+            sequencers: sequencers.filter(s => s !== null).map(s => ({ 
+                rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: JSON.parse(JSON.stringify(s.data)), selectedSound: s.selectedSound
+            })) 
+        });
+    }
+
+    function pushUndo() {
+        if(undoStack.length > 50) undoStack.shift();
+        undoStack.push(getSessionJSON());
+    }
+
+    function performUndo() {
+        if(undoStack.length === 0) return;
+        const prevSession = undoStack.pop();
+        const session = JSON.parse(prevSession);
+        
+        document.getElementById('bpm').value = session.bpm;
+        stopAll();
+        document.getElementById('sequencers-container').innerHTML = '';
+        sequencers = [];
+        session.sequencers.forEach((sData, idx) => { sequencers.push(new Sequencer(idx, sData)); });
+    }
+
+    function handleCellClick(id, r, c, el) {
+        if (sequencers[id].selectedSound === 'drums' && currentTool === 'edit') {
+             el.blur(); pushUndo();
+             const val = sequencers[id].activeDrumBrush;
+             sequencers[id].data[r][c] = val; el.value = val;
+             flashCell(el, '#ff0095'); return;
+        }
+        if (currentTool === 'edit') return;
+        
+        el.blur();
+        if (currentTool === 'copy') { clipboardValue = sequencers[id].data[r][c]; flashCell(el); }
+        else if (currentTool === 'paste') { pushUndo(); sequencers[id].data[r][c] = clipboardValue; el.value = clipboardValue; }
+        else if (currentTool === 'erase') { pushUndo(); sequencers[id].data[r][c] = ""; el.value = ""; }
+        else if (currentTool === 'ref') {
+            if (!refTargetCell) {
+                refTargetCell = {id, r, c}; flashCell(el, '#0095ff'); showAlert("Select Reference Cell");
+            } else { openRefOverlay(id, r, c); }
+        }
+    }
+
+    function flashCell(el, color = '#00ff95') {
+        const oldBg = el.style.backgroundColor;
+        el.style.backgroundColor = color;
+        setTimeout(() => el.style.backgroundColor = oldBg, 150);
+    }
+
+    function handleCellFocus(el) { if (currentTool === 'edit') tempStateBeforeEdit = getSessionJSON(); }
+    function handleCellChange(id, r, c, el) {
+        if (currentTool === 'edit' && tempStateBeforeEdit) { undoStack.push(tempStateBeforeEdit); tempStateBeforeEdit = null; }
+        sequencers[id].data[r][c] = el.value;
+    }
+
+    function openRefOverlay(sourceId, sourceR, sourceC) {
+        const colStr = sequencers[sourceId].getColLabel(sourceC);
+        const rowStr = sourceR + 1;
+        refSourceCellStr = colStr + rowStr;
+        currentRefType = null;
+        document.getElementById('ref-inputs-container').innerHTML = '';
+        document.querySelectorAll('.ref-btn').forEach(b => b.classList.remove('selected'));
+        document.getElementById('ref-overlay').style.display = 'flex';
+    }
+
+    function closeRefOverlay() { document.getElementById('ref-overlay').style.display = 'none'; refTargetCell = null; }
+
+    function selectRefType(type, btn) {
+        currentRefType = type;
+        document.querySelectorAll('.ref-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const container = document.getElementById('ref-inputs-container');
+        container.innerHTML = '';
+        if (type === 'et12') container.innerHTML = '<label>i:</label><input type="number" id="ref-input-i" placeholder="0">';
+        else if (type === 'etn') container.innerHTML = '<label>i:</label><input type="number" id="ref-input-i" placeholder="0" style="margin-right:10px"> <label>n:</label><input type="number" id="ref-input-n" placeholder="12">';
+        else if (type === 'custom') container.innerHTML = '<input type="text" id="ref-input-custom" placeholder="e.g. 2^(7/19)" style="width:150px">';
+    }
+
+    function applyRefFormula() {
+        if (!refTargetCell) return closeRefOverlay();
+        let interval = "";
+        if (['3/2', '4/3', '5/4', '6/5', '9/8', '2'].includes(currentRefType)) interval = currentRefType;
+        else if (currentRefType === 'et12') interval = `2^(${document.getElementById('ref-input-i').value||0}/12)`;
+        else if (currentRefType === 'etn') interval = `2^(${document.getElementById('ref-input-i').value||0}/${document.getElementById('ref-input-n').value||12})`;
+        else if (currentRefType === 'custom') interval = document.getElementById('ref-input-custom').value;
+
+        if (!interval) return showAlert("Please select an interval.");
+        const op = document.querySelector('input[name="refOp"]:checked').value;
+        const formula = `=${refSourceCellStr}${op}${interval}`;
+        pushUndo();
+        const {id, r, c} = refTargetCell;
+        sequencers[id].data[r][c] = formula;
+        const cell = document.getElementById(`cell-${id}-${r}-${c}`);
+        if(cell) cell.value = formula;
+        closeRefOverlay();
+    }
 
     function togglePlay() {
         if (isPlaying) { 
-            isPlaying = false; 
-            document.getElementById('playBtn').innerText = "PLAY"; 
-            clearTimeout(timerID); 
-            sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
+            isPlaying = false; document.getElementById('playBtn').innerText = "PLAY"; 
+            clearTimeout(timerID); sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
         } else {
             if (audioCtx.state === 'suspended') audioCtx.resume();
-            isPlaying = true; 
-            document.getElementById('playBtn').innerText = "PAUSE";
-            nextStepTime = audioCtx.currentTime; 
-            scheduler();
+            isPlaying = true; document.getElementById('playBtn').innerText = "PAUSE";
+            nextStepTime = audioCtx.currentTime; scheduler();
         }
     }
 
     function stopAll() {
-        isPlaying = false; 
-        document.getElementById('playBtn').innerText = "PLAY";
-        clearTimeout(timerID);
-        sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
-        masterStep = 0;
-        updateUI();
+        isPlaying = false; document.getElementById('playBtn').innerText = "PLAY";
+        clearTimeout(timerID); sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
+        masterStep = 0; updateUI();
     }
 
     function resetToStart() {
         sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
-        masterStep = 0;
-        updateUI();
+        masterStep = 0; updateUI();
     }
 
     function scheduler() {
@@ -425,11 +1189,8 @@
         });
     }
 
-    function toggleInfo() {
-        const el = document.getElementById('info-overlay');
-        el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
-    }
-
+    function toggleInfo() { const el = document.getElementById('info-overlay'); el.style.display = (el.style.display === 'flex') ? 'none' : 'flex'; }
+    
     function toggleVisualizer() {
         const el = document.getElementById('visualizer-overlay');
         el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
@@ -440,27 +1201,19 @@
         const canvas = document.getElementById('circleCanvas');
         const ctx = canvas.getContext('2d');
         const cx = canvas.width/2, cy = canvas.height/2;
-
         function frame() {
-            ctx.fillStyle = 'rgba(10,10,12, 0.25)';
-            ctx.fillRect(0,0, canvas.width, canvas.height);
-            for(let i=1; i<=10; i++) {
-                ctx.beginPath(); ctx.arc(cx, cy, i*35, 0, Math.PI*2);
-                ctx.strokeStyle = '#1e1e24'; ctx.stroke();
-            }
-            ctx.beginPath(); ctx.moveTo(cx, cy-350); ctx.lineTo(cx, cy);
-            ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
-
+            ctx.fillStyle = 'rgba(10,10,12, 0.25)'; ctx.fillRect(0,0, canvas.width, canvas.height);
+            for(let i=1; i<=10; i++) { ctx.beginPath(); ctx.arc(cx, cy, i*35, 0, Math.PI*2); ctx.strokeStyle = '#1e1e24'; ctx.stroke(); }
+            ctx.beginPath(); ctx.moveTo(cx, cy-350); ctx.lineTo(cx, cy); ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+            
             sequencers.forEach(seq => {
                 if (!seq) return;
                 seq.activeSources.forEach(s => {
                     if (s && s.hz > 0) {
-                        const hz = s.hz;
-                        const oct = Math.log2(hz/27.5);
+                        const hz = s.hz; const oct = Math.log2(hz/27.5);
                         const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35;
                         const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
                         const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
-
                         ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI*2);
                         ctx.fillStyle = `hsla(${(hz % 360)}, 85%, 60%, 1)`; ctx.fill();
                         ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
@@ -469,14 +1222,13 @@
                     }
                 });
             });
-
             if (document.getElementById('visualizer-overlay').style.display === 'flex') requestAnimationFrame(frame);
         }
         frame();
     }
 
     function saveSession() {
-        const session = { bpm: document.getElementById('bpm').value, sequencers: sequencers.filter(s => s !== null).map(s => ({ rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: s.data })) };
+        const session = JSON.parse(getSessionJSON());
         const blob = new Blob([JSON.stringify(session)], {type: 'application/json'});
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
         a.download = 'synth_session.json'; a.click();
@@ -487,6 +1239,7 @@
         if (!file) return;
         const reader = new FileReader();
         reader.onload = (e) => {
+            pushUndo();
             const session = JSON.parse(e.target.result);
             document.getElementById('bpm').value = session.bpm;
             stopAll();
@@ -497,17 +1250,16 @@
         reader.readAsText(file);
     }
 
-    function addNewSequencer() { sequencers.push(new Sequencer(sequencers.length)); }
-    function removeSequencer(id) { document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; }
+    function addNewSequencer() { pushUndo(); sequencers.push(new Sequencer(sequencers.length)); }
+    function removeSequencer(id) { 
+        if (confirm("Remove sequencer?")) { pushUndo(); document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; } 
+    }
 
     function exportAllMidi() {
-        const midi = new Midi();
-        const bpm = document.getElementById('bpm').value;
-        midi.header.setTempo(bpm);
+        const midi = new Midi(); const bpm = document.getElementById('bpm').value; midi.header.setTempo(bpm);
         sequencers.forEach(s => {
             if (!s) return;
-            const track = midi.addTrack();
-            const stepDur = 60 / bpm / 4;
+            const track = midi.addTrack(); const stepDur = 60 / bpm / 4;
             for (let r = 0; r < s.rows; r++) {
                 let lastHz = 0, startTime = 0;
                 for (let c = 0; c < 64; c++) {
@@ -526,11 +1278,17 @@
     }
 
     window.onkeydown = (e) => {
-        if (e.target.tagName === "INPUT") return;
+        const isInput = e.target.tagName === "INPUT"; if (isInput) return;
         const key = e.key.toLowerCase();
         if (e.code === "Space") { e.preventDefault(); togglePlay(); }
         if (key === "s") stopAll();
         if (key === "w") resetToStart();
+        if (key === "e") setTool('edit');
+        if (key === "c") setTool('copy');
+        if (key === "v") setTool('paste');
+        if (key === "r") setTool('erase');
+        if (key === "f") setTool('ref');
+        if (key === "z") performUndo();
         if (!isPlaying) {
             if (key === "a") { masterStep = Math.max(0, masterStep - 1); updateUI(); }
             if (key === "d") { masterStep++; updateUI(); }
