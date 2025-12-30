@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel-Synth Master Pro 2025 - Professional Edition</title>
-    <!-- Efektikirjasto -->
+    <title>Table Sequencer</title>
+    <!-- Ulkoiset kirjastot -->
+    <script src="intervals.js"></script>
     <script src="fx.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
     <script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
@@ -81,6 +82,23 @@
             color: var(--accent); padding: 6px; border-radius: 4px;
         }
 
+        /* Styling for Volume Sliders */
+        .vol-group {
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            background: #000; padding: 5px; border-radius: 6px; border: 1px solid #333;
+        }
+        .vol-label { font-size: 9px; color: #888; font-weight: bold; letter-spacing: 1px; }
+        input[type=range].vol-slider {
+            -webkit-appearance: none; width: 80px; background: transparent; margin: 5px 0;
+        }
+        input[type=range].vol-slider::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; background: #333; border-radius: 2px;
+        }
+        input[type=range].vol-slider::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 10px; width: 10px; border-radius: 50%;
+            background: var(--accent); margin-top: -3px; cursor: pointer;
+        }
+
         .grid-container { overflow-x: auto; width: 100%; }
         table { border-collapse: collapse; background: #000; width: 100%; }
         th, td { border: 1px solid var(--border); min-width: 75px; height: 35px; text-align: center; }
@@ -104,6 +122,17 @@
             border: 1px solid var(--accent); text-align: center; max-width: 500px;
             display: flex; flex-direction: column; gap: 15px;
         }
+
+        /* Interval List Styles */
+        #interval-list-container {
+            width: 80%; max-width: 600px; height: 50vh; overflow-y: auto;
+            background: #111; border: 1px solid #444; margin-top: 20px;
+        }
+        #interval-table th, #interval-table td {
+            border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; color: #ccc;
+        }
+        #interval-table th { background: #222; color: var(--accent); position: sticky; top: 0; }
+        #interval-table tr:hover { background: #1a1a1a; }
 
         /* --- FX PAGE STYLES --- */
         #fx-overlay {
@@ -260,11 +289,19 @@
         <label>MIDI OUT</label>
         <select id="midiOutSelect"></select>
     </div>
+
+    <!-- Master Volume -->
+    <div class="vol-group">
+        <div class="vol-label">MASTER VOL</div>
+        <input type="range" class="vol-slider" min="0" max="1" step="0.01" value="0.5" oninput="setMasterVolume(this.value)">
+    </div>
+
     <button onclick="addNewSequencer()">+ ADD SEQUENCER</button>
     <button onclick="saveSession()">SAVE JSON</button>
     <button onclick="document.getElementById('session-loader').click()">LOAD JSON</button>
     <input type="file" id="session-loader" hidden accept=".json" onchange="loadSession(event)">
     <button onclick="toggleInfo()" style="border-color: #55acee; color: #55acee;">INFO</button>
+    <button onclick="toggleIntervalList()" style="border-color: #aa55ee; color: #aa55ee;">INTERVAL LIST</button>
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
     <button onclick="showAlert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
@@ -286,6 +323,22 @@
     </div>
 </div>
 
+<!-- Interval List Overlay -->
+<div id="interval-overlay" class="overlay">
+    <div class="overlay-content" style="max-width: 900px;">
+        <h2 style="color:var(--accent)">Interval List</h2>
+        <div id="interval-list-container">
+            <table id="interval-table">
+                <thead>
+                    <tr><th>Name</th><th>Ratio</th><th>Decimal</th><th>Cents</th></tr>
+                </thead>
+                <tbody id="interval-tbody"></tbody>
+            </table>
+        </div>
+        <button onclick="toggleIntervalList()" style="margin-top: 20px;">CLOSE</button>
+    </div>
+</div>
+
 <!-- Custom Alert Overlay -->
 <div id="custom-alert" class="overlay">
     <div class="overlay-content">
@@ -299,6 +352,12 @@
 <div id="visualizer-overlay" class="overlay">
     <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
     <div style="color:var(--accent); margin-bottom:10px;">A / D: Siirrä askelta (Pausella)</div>
+    
+    <div style="position: absolute; top: 30px; left: 30px; display:flex; flex-direction:column; gap:5px; background:#000; padding:10px; border:1px solid #333; border-radius:6px;">
+        <label style="font-size:11px; color:#aaa;">ZOOM</label>
+        <input type="range" class="vol-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="updateVizZoom(this.value)">
+    </div>
+
     <canvas id="circleCanvas" width="800" height="800"></canvas>
 </div>
 
@@ -437,6 +496,10 @@
 
 <script>
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let masterGainNode = audioCtx.createGain();
+    masterGainNode.connect(audioCtx.destination);
+    masterGainNode.gain.value = 0.5; // Default master vol
+
     let sequencers = [];
     let isPlaying = false;
     let masterStep = 0;
@@ -458,9 +521,13 @@
     let refSourceCellStr = "";
     let currentRefType = null;
 
+    // Visualizer Zoom
+    let visualizerZoom = 1.0;
+
     const soundPresets = {
-        sound1: null, sound2: null, sound3: null, sound4: null,
-        kick: null, snare: null, 'hh-c': null, 'hh-o': null, ride: null, crash: null
+        sound1: null, sound2: null, sound3: null, sound4: null, sound5: null,
+        kick: null, snare: null, 'hh-c': null, 'hh-o': null, ride: null, crash: null,
+        tom1: null, tom2: null, tom3: null
     };
     
     function showAlert(msg) {
@@ -474,8 +541,9 @@
     
     async function initAudio() {
         const files = [
-            'sound1.wav', 'sound2.wav', 'sound3.wav', 'sound4.wav',
-            'kick.wav', 'snare.wav', 'hh-c.wav', 'hh-o.wav', 'ride.wav', 'crash.wav'
+            'sound1.wav', 'sound2.wav', 'sound3.wav', 'sound4.wav', 'sound5.wav',
+            'kick.wav', 'snare.wav', 'hh-c.wav', 'hh-o.wav', 'ride.wav', 'crash.wav',
+            'tom1.wav', 'tom2.wav', 'tom3.wav'
         ];
         
         for(let i=0; i<files.length; i++) {
@@ -491,6 +559,10 @@
         }
     }
     initAudio();
+
+    function setMasterVolume(val) {
+        if(masterGainNode) masterGainNode.gain.value = val;
+    }
 
     if (navigator.requestMIDIAccess) {
         navigator.requestMIDIAccess().then(access => {
@@ -522,7 +594,13 @@
             
             // --- FX ENGINE INIT ---
             this.fxEngine = new window.FXEngineClass(audioCtx);
-            this.fxEngine.output.connect(audioCtx.destination);
+            // Volume control for this sequencer
+            this.volNode = audioCtx.createGain();
+            this.volNode.gain.value = loadedData ? (loadedData.volume || 1.0) : 1.0;
+            
+            // Route: FX -> Vol -> Master
+            this.fxEngine.output.connect(this.volNode);
+            this.volNode.connect(masterGainNode);
             // ---------------------
 
             if (loadedData) {
@@ -551,6 +629,7 @@
                 <option value="sound2" ${this.selectedSound === 'sound2' ? 'selected' : ''}>Sound 2</option>
                 <option value="sound3" ${this.selectedSound === 'sound3' ? 'selected' : ''}>Sound 3</option>
                 <option value="sound4" ${this.selectedSound === 'sound4' ? 'selected' : ''}>Sound 4</option>
+                <option value="sound5" ${this.selectedSound === 'sound5' ? 'selected' : ''}>Sound 5</option>
                 <option value="custom" ${this.selectedSound === 'custom' ? 'selected' : ''}>Custom WAV</option>
                 <option value="sf2" ${this.selectedSound === 'sf2' ? 'selected' : ''}>SF2 SoundFont</option>
                 <option value="drums" ${this.selectedSound === 'drums' ? 'selected' : ''}>Drums</option>
@@ -562,6 +641,11 @@
                     
                     <button class="fx-btn" onclick="openFxPanel(${this.id})">FX & DYNAMICS</button>
 
+                    <div class="vol-group">
+                        <div class="vol-label">VOL</div>
+                        <input type="range" class="vol-slider" min="0" max="1.2" step="0.01" value="${this.volNode.gain.value}" oninput="sequencers[${this.id}].setVolume(this.value)">
+                    </div>
+
                     <div class="label-group"><label>COLS</label>
                         <input type="number" value="${this.cols}" min="1" max="64" onchange="sequencers[${this.id}].updateCols(this.value)">
                     </div>
@@ -570,13 +654,16 @@
                         <select onchange="sequencers[${this.id}].changeSoundSource(this.value)">${options}</select>
                     </div>
 
-                    <div class="label-group" id="grp-drums-${this.id}" style="display:${showDrums}; gap:5px;">
+                    <div class="label-group" id="grp-drums-${this.id}" style="display:${showDrums}; gap:5px; flex-wrap:wrap; max-width:400px;">
                         <button class="drum-btn active-drum" onclick="sequencers[${this.id}].setDrumBrush('KICK', this)">KICK</button>
                         <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('SNARE', this)">SNARE</button>
                         <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('HH-C', this)">HH-C</button>
                         <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('HH-O', this)">HH-O</button>
                         <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('RIDE', this)">RIDE</button>
                         <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('CRASH', this)">CRASH</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('TOM1', this)">TOM1</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('TOM2', this)">TOM2</button>
+                        <button class="drum-btn" onclick="sequencers[${this.id}].setDrumBrush('TOM3', this)">TOM3</button>
                     </div>
 
                     <div class="label-group" id="grp-custom-${this.id}" style="display:${showCustomWav}"><label>SAMPLE</label><input type="file" accept="audio/*" onchange="sequencers[${this.id}].loadSample(this)"></div>
@@ -597,6 +684,10 @@
             `;
             container.appendChild(div);
             this.buildGrid();
+        }
+
+        setVolume(val) {
+            this.volNode.gain.value = val;
         }
 
         changeSoundSource(val) {
@@ -740,11 +831,8 @@
                     src.connect(this.fxEngine.input);
                     src.start(time);
                     
-                    let vizHz = 100;
-                    if(drumKey.includes('hh')) vizHz = 8000;
-                    if(drumKey.includes('snare')) vizHz = 1000;
-                    if(drumKey.includes('kick')) vizHz = 60;
-                    this.activeSources[r] = { type: 'oneshot', hz: vizHz };
+                    // No visualization for drums requested
+                    this.activeSources[r] = { type: 'oneshot', hz: 0 };
                     setTimeout(() => { if(this.activeSources[r] && this.activeSources[r].type === 'oneshot') this.activeSources[r] = null; }, 150);
                 }
                 return;
@@ -925,8 +1013,6 @@
     }
 
     function updateSlider(labelId, val, type, paramIndex) {
-        // Find input by structure (clunky but works without IDs on every input)
-        // Adjust logic to find input relative to label
         const label = document.getElementById(labelId);
         if(label) {
             label.innerText = (type==='eq' ? Math.round(val)+'dB' : (type==='filter' ? Math.round(val)+'Hz' : val));
@@ -945,16 +1031,6 @@
             mod.classList.remove('active');
             tog.classList.remove('on');
         }
-        // Update sliders if possible (simple way)
-        const sliders = mod.querySelectorAll('input[type=range]');
-        // This relies on fixed order in HTML matches `fx.js` internal param order. 
-        // For robustness, we trigger update on input move, but setting initial values is hard without specific IDs.
-        // We will assume user adjusts them or defaults match.
-        // For "Mix" specifically:
-        const mixSlider = document.getElementById(`${name}Mix`);
-        // We can try to guess values, but fx.js doesn't expose all param getters easily without digging.
-        // We leave sliders at visual defaults or implement getters in fx.js later.
-        // For now, let's just sync the toggle state.
     }
 
     function closeFxPanel() {
@@ -1050,7 +1126,8 @@
         return JSON.stringify({ 
             bpm: document.getElementById('bpm').value, 
             sequencers: sequencers.filter(s => s !== null).map(s => ({ 
-                rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: JSON.parse(JSON.stringify(s.data)), selectedSound: s.selectedSound
+                rows: s.rows, cols: s.cols, rootHz: s.rootHz, data: JSON.parse(JSON.stringify(s.data)), 
+                selectedSound: s.selectedSound, volume: s.volNode.gain.value
             })) 
         });
     }
@@ -1191,10 +1268,36 @@
 
     function toggleInfo() { const el = document.getElementById('info-overlay'); el.style.display = (el.style.display === 'flex') ? 'none' : 'flex'; }
     
+    function toggleIntervalList() {
+        const el = document.getElementById('interval-overlay');
+        const isOpen = el.style.display === 'flex';
+        el.style.display = isOpen ? 'none' : 'flex';
+        
+        if (!isOpen && typeof intervalList !== 'undefined') {
+            const tbody = document.getElementById('interval-tbody');
+            tbody.innerHTML = '';
+            intervalList.forEach(iv => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${iv.name}</td>
+                    <td>${iv.ratio}</td>
+                    <td>${iv.decimal.toFixed(4)}</td>
+                    <td>${iv.cents}</td>
+
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+
     function toggleVisualizer() {
         const el = document.getElementById('visualizer-overlay');
         el.style.display = (el.style.display === 'flex') ? 'none' : 'flex';
         if (el.style.display === 'flex') drawCircles();
+    }
+
+    function updateVizZoom(val) {
+        visualizerZoom = parseFloat(val);
     }
 
     function drawCircles() {
@@ -1203,15 +1306,18 @@
         const cx = canvas.width/2, cy = canvas.height/2;
         function frame() {
             ctx.fillStyle = 'rgba(10,10,12, 0.25)'; ctx.fillRect(0,0, canvas.width, canvas.height);
-            for(let i=1; i<=10; i++) { ctx.beginPath(); ctx.arc(cx, cy, i*35, 0, Math.PI*2); ctx.strokeStyle = '#1e1e24'; ctx.stroke(); }
-            ctx.beginPath(); ctx.moveTo(cx, cy-350); ctx.lineTo(cx, cy); ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+            for(let i=1; i<=10; i++) { ctx.beginPath(); ctx.arc(cx, cy, i*35*visualizerZoom, 0, Math.PI*2); ctx.strokeStyle = '#1e1e24'; ctx.stroke(); }
+            ctx.beginPath(); ctx.moveTo(cx, cy-(350*visualizerZoom)); ctx.lineTo(cx, cy); ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
             
             sequencers.forEach(seq => {
                 if (!seq) return;
+                // Älä näytä drums-sekvensseriä visualizerissa
+                if (seq.selectedSound === 'drums') return;
+
                 seq.activeSources.forEach(s => {
                     if (s && s.hz > 0) {
                         const hz = s.hz; const oct = Math.log2(hz/27.5);
-                        const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35;
+                        const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35 * visualizerZoom;
                         const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
                         const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
                         ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI*2);
