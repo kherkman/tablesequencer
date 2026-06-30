@@ -275,6 +275,10 @@
         <span class="kb-hint">F</span>
     </div>
     <div class="label-group">
+        <button onclick="toggleViewHz()" id="viewHzBtn" class="tool-btn">VIEW HZ: OFF</button>
+        <span class="kb-hint">H</span>
+    </div>
+    <div class="label-group">
         <button onclick="performUndo()">UNDO</button>
         <span class="kb-hint">Z</span>
     </div>
@@ -311,15 +315,29 @@
 
 <!-- Info Overlay -->
 <div id="info-overlay" class="overlay">
-    <div class="overlay-content">
-        <h2 style="color:var(--accent)">Excel-Synth Info</h2>
-        <p style="font-size: 18px; line-height: 1.6;">Insert herz or formulas to the cells.</p>
-        <p style="color:#888; font-size: 14px; margin-top: 20px;">
-            Esimerkki: 440 (Hz) tai =A1*3/2 (kaava)<br>
-            Pausella: A/D siirtää lukupäätä.<br>
-            W: Alkuun | S: Stop | Space: Play
+    <div class="overlay-content" style="max-width: 600px; text-align: left;">
+        <h2 style="color:var(--accent); text-align: center;">Excel-Synth Info</h2>
+        <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">
+            Welcome to the Table Sequencer! Enter raw frequencies (e.g., <code>440</code>) or spreadsheet-style formulas (e.g., <code>=A1*3/2</code>) directly into cells to construct complex microtonal, generative, or harmonic intervals.
         </p>
-        <button onclick="toggleInfo()" style="margin-top: 30px;">CLOSE</button>
+        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px;">Keyboard Shortcuts (Hotkeys)</h3>
+        <ul style="list-style-type: none; padding-left: 0; line-height: 1.8; font-size: 14px; color: #ccc;">
+            <li><strong style="color:#fff">SPACE:</strong> Play / Pause sequencer</li>
+            <li><strong style="color:#fff">S:</strong> Stop playback and reset to start</li>
+            <li><strong style="color:#fff">W:</strong> Go to the start of the sequence</li>
+            <li><strong style="color:#fff">A:</strong> Move playback head one step backward (when paused)</li>
+            <li><strong style="color:#fff">D:</strong> Move playback head one step forward (when paused)</li>
+            <li><strong style="color:#fff">E:</strong> Switch to EDIT tool</li>
+            <li><strong style="color:#fff">C:</strong> Switch to COPY tool</li>
+            <li><strong style="color:#fff">V:</strong> Switch to PASTE tool</li>
+            <li><strong style="color:#fff">R:</strong> Switch to ERASE tool</li>
+            <li><strong style="color:#fff">F:</strong> Switch to REF tool</li>
+            <li><strong style="color:#fff">H:</strong> Toggle View Hz mode On/Off</li>
+            <li><strong style="color:#fff">Z:</strong> Undo last action</li>
+        </ul>
+        <div style="text-align: center; margin-top: 25px;">
+            <button onclick="toggleInfo()">CLOSE</button>
+        </div>
     </div>
 </div>
 
@@ -512,8 +530,9 @@
     let currentFxSeqId = -1;
     let drawFxInterval = null;
 
-    // Työkalut ja Undo
+    // Työkalut, View Hz ja Undo
     let currentTool = 'edit';
+    let viewHzMode = false;
     let clipboardValue = "";
     let undoStack = [];
     let tempStateBeforeEdit = null;
@@ -718,10 +737,26 @@
             for (let r = 0; r < this.rows; r++) {
                 let tr = document.createElement('tr');
                 tr.innerHTML = `<th>${r + 1}</th>` + Array(parseInt(this.cols)).fill().map((_, c) => {
-                    const val = (this.data[r] && this.data[r][c]) ? this.data[r][c] : "";
-                    return `<td><input id="cell-${this.id}-${r}-${c}" value="${val}" 
+                    const rawVal = (this.data[r] && this.data[r][c]) ? this.data[r][c] : "";
+                    let displayVal = rawVal;
+                    let bgStyle = "";
+                    let colorStyle = "";
+                    
+                    if (viewHzMode && this.selectedSound !== 'drums') {
+                        const hz = this.evaluateCell(r, c);
+                        if (hz > 0) {
+                            displayVal = Math.round(hz * 100) / 100 + " Hz";
+                            bgStyle = `background-color: hsla(${hz % 360}, 85%, 35%, 0.75);`;
+                            colorStyle = "color: #fff;";
+                        } else {
+                            displayVal = rawVal ? "0 Hz" : "";
+                        }
+                    }
+
+                    return `<td><input id="cell-${this.id}-${r}-${c}" value="${displayVal}" style="${bgStyle}${colorStyle}" 
                         onclick="handleCellClick(${this.id}, ${r}, ${c}, this)"
                         onfocus="handleCellFocus(this)"
+                        onblur="handleCellBlur(this)"
                         onchange="handleCellChange(${this.id}, ${r}, ${c}, this)"
                         ></td>`;
                 }).join('');
@@ -1104,14 +1139,19 @@
         }
     }
 
-    // --- TYÖKALUT (Vanha koodi) ---
+    // --- TYÖKALUT ---
 
     function setTool(tool) {
         currentTool = tool;
         refTargetCell = null;
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
-        document.getElementById(`btn-tool-${tool}`).classList.add('active-tool');
+        const btn = document.getElementById(`btn-tool-${tool}`);
+        if(btn) btn.classList.add('active-tool');
         
+        // Ensure View Hz button remains visual if viewHzMode is active
+        const hzBtn = document.getElementById('viewHzBtn');
+        if (hzBtn && viewHzMode) hzBtn.classList.add('active-tool');
+
         const inputs = document.querySelectorAll('td input');
         inputs.forEach(inp => {
             inp.classList.remove('cursor-copy', 'cursor-paste', 'cursor-erase', 'cursor-ref');
@@ -1119,6 +1159,52 @@
             if(tool === 'paste') inp.classList.add('cursor-paste');
             if(tool === 'erase') inp.classList.add('cursor-erase');
             if(tool === 'ref') inp.classList.add('cursor-ref');
+        });
+    }
+
+    function toggleViewHz() {
+        viewHzMode = !viewHzMode;
+        const btn = document.getElementById('viewHzBtn');
+        if (btn) {
+            btn.innerText = viewHzMode ? "VIEW HZ: ON" : "VIEW HZ: OFF";
+            if (viewHzMode) {
+                btn.classList.add('active-tool');
+            } else {
+                btn.classList.remove('active-tool');
+            }
+        }
+        updateAllCells();
+    }
+
+    function updateAllCells() {
+        sequencers.forEach(seq => {
+            if (!seq) return;
+            for (let r = 0; r < seq.rows; r++) {
+                for (let c = 0; c < seq.cols; c++) {
+                    const inputEl = document.getElementById(`cell-${seq.id}-${r}-${c}`);
+                    if (inputEl) {
+                        // Do not modify the display of a cell that is currently being edited
+                        if (document.activeElement === inputEl) continue;
+
+                        if (viewHzMode && seq.selectedSound !== 'drums') {
+                            const hz = seq.evaluateCell(r, c);
+                            if (hz > 0) {
+                                inputEl.value = Math.round(hz * 100) / 100 + " Hz";
+                                inputEl.style.backgroundColor = `hsla(${hz % 360}, 85%, 35%, 0.75)`;
+                                inputEl.style.color = "#fff";
+                            } else {
+                                inputEl.value = seq.data[r][c] ? "0 Hz" : "";
+                                inputEl.style.backgroundColor = "";
+                                inputEl.style.color = "";
+                            }
+                        } else {
+                            inputEl.value = seq.data[r][c] || "";
+                            inputEl.style.backgroundColor = "";
+                            inputEl.style.color = "";
+                        }
+                    }
+                }
+            }
         });
     }
 
@@ -1175,10 +1261,53 @@
         setTimeout(() => el.style.backgroundColor = oldBg, 150);
     }
 
-    function handleCellFocus(el) { if (currentTool === 'edit') tempStateBeforeEdit = getSessionJSON(); }
+    function handleCellFocus(el) { 
+        if (currentTool === 'edit') tempStateBeforeEdit = getSessionJSON(); 
+        
+        // Show raw data for editing when focused in View Hz mode
+        if (viewHzMode) {
+            const idParts = el.id.split('-');
+            const id = parseInt(idParts[1]);
+            const r = parseInt(idParts[2]);
+            const c = parseInt(idParts[3]);
+            const seq = sequencers[id];
+            if (seq && seq.selectedSound !== 'drums') {
+                el.value = seq.data[r][c] || "";
+                el.style.backgroundColor = "";
+                el.style.color = "";
+            }
+        }
+    }
+
+    function handleCellBlur(el) {
+        // Return formatted Hz display on focus loss
+        if (viewHzMode) {
+            const idParts = el.id.split('-');
+            const id = parseInt(idParts[1]);
+            const r = parseInt(idParts[2]);
+            const c = parseInt(idParts[3]);
+            const seq = sequencers[id];
+            if (seq && seq.selectedSound !== 'drums') {
+                const hz = seq.evaluateCell(r, c);
+                if (hz > 0) {
+                    el.value = Math.round(hz * 100) / 100 + " Hz";
+                    el.style.backgroundColor = `hsla(${hz % 360}, 85%, 35%, 0.75)`;
+                    el.style.color = "#fff";
+                } else {
+                    el.value = seq.data[r][c] ? "0 Hz" : "";
+                    el.style.backgroundColor = "";
+                    el.style.color = "";
+                }
+            }
+        }
+    }
+
     function handleCellChange(id, r, c, el) {
         if (currentTool === 'edit' && tempStateBeforeEdit) { undoStack.push(tempStateBeforeEdit); tempStateBeforeEdit = null; }
         sequencers[id].data[r][c] = el.value;
+        if (viewHzMode) {
+            updateAllCells();
+        }
     }
 
     function openRefOverlay(sourceId, sourceR, sourceC) {
@@ -1219,7 +1348,12 @@
         const {id, r, c} = refTargetCell;
         sequencers[id].data[r][c] = formula;
         const cell = document.getElementById(`cell-${id}-${r}-${c}`);
-        if(cell) cell.value = formula;
+        if(cell) {
+            cell.value = formula;
+            if (viewHzMode) {
+                updateAllCells();
+            }
+        }
         closeRefOverlay();
     }
 
@@ -1283,7 +1417,6 @@
                     <td>${iv.ratio}</td>
                     <td>${iv.decimal.toFixed(4)}</td>
                     <td>${iv.cents}</td>
-
                 `;
                 tbody.appendChild(tr);
             });
@@ -1394,6 +1527,7 @@
         if (key === "v") setTool('paste');
         if (key === "r") setTool('erase');
         if (key === "f") setTool('ref');
+        if (key === "h") toggleViewHz();
         if (key === "z") performUndo();
         if (!isPlaying) {
             if (key === "a") { masterStep = Math.max(0, masterStep - 1); updateUI(); }
