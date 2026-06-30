@@ -7,6 +7,7 @@
     <!-- Ulkoiset kirjastot -->
     <script src="intervals.js"></script>
     <script src="fx.js"></script>
+    <script src="exports.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
     <script src="https://cdn.jsdelivr.net/npm/spessa-synth@1.4.1/dist/spessa_synth.min.js"></script>
 
@@ -69,7 +70,7 @@
         button:hover { background: var(--accent); color: #000; }
         
         .tool-btn { border-color: #666; color: #aaa; }
-        .tool-btn.active-tool { background: var(--accent); color: #000; border-color: var(--accent); }
+        .tool-btn.active-tool, .preset-btn.active-tool { background: var(--accent); color: #000; border-color: var(--accent); }
 
         .fx-btn { border-color: var(--fx-neon); color: var(--fx-neon); box-shadow: 0 0 5px rgba(0, 243, 255, 0.2); }
         .fx-btn:hover { background: var(--fx-neon); color: #000; box-shadow: 0 0 15px var(--fx-neon); }
@@ -197,10 +198,6 @@
             width: 30px; height: 16px; background: #333; border-radius: 8px;
             position: relative; cursor: pointer; transition: 0.3s;
         }
-        .fx-toggle::after {
-            content: ''; position: absolute; top: 2px; left: 2px;
-            width: 12px; height: 12px; background: #888; border-radius: 50%; transition: 0.3s;
-        }
         .fx-toggle.on { background: rgba(0, 243, 255, 0.3); }
         .fx-toggle.on::after { left: 16px; background: var(--fx-neon); box-shadow: 0 0 10px var(--fx-neon); }
 
@@ -277,6 +274,10 @@
         <span class="kb-hint">C</span>
     </div>
     <div class="label-group">
+        <button onclick="setTool('copyabs')" id="btn-tool-copyabs" class="tool-btn">COPY ABS</button>
+        <span class="kb-hint">X</span>
+    </div>
+    <div class="label-group">
         <button onclick="setTool('paste')" id="btn-tool-paste" class="tool-btn">PASTE</button>
         <span class="kb-hint">V</span>
     </div>
@@ -296,6 +297,10 @@
         <button onclick="performUndo()">UNDO</button>
         <span class="kb-hint">Z</span>
     </div>
+
+    <!-- Dynaamiset 1-7 pikanäppäinten taajuuspainikkeet -->
+    <div style="width: 1px; background: #333; height: 30px; margin: 0 10px;"></div>
+    <div style="display: flex; gap: 4px; align-items: center;" id="freq-presets-container"></div>
 
     <div style="width: 1px; background: #333; height: 30px; margin: 0 10px;"></div>
 
@@ -322,7 +327,7 @@
     <button onclick="toggleIntervalList()" style="border-color: #aa55ee; color: #aa55ee;">INTERVAL LIST</button>
     <button onclick="toggleVisualizer()">VISUAL CIRCLE</button>
     <button onclick="exportAllMidi()">MIDI EXPORT</button>
-    <button onclick="showAlert('WAV: Tallenna järjestelmän ääni toiston aikana.')">WAV EXPORT</button>
+    <button onclick="handleWavExportClick()" id="wavExportBtn">WAV EXPORT</button>
 </header>
 
 <div id="sequencers-container" style="width: 100%; display: flex; flex-direction: column; align-items: center;"></div>
@@ -334,6 +339,12 @@
         
         <p style="font-size: 15px; line-height: 1.5; margin-bottom: 15px; color: #ccc;">
             Welcome to the Table Sequencer! Enter raw frequencies (e.g., <code>440</code>) or spreadsheet-style formulas (e.g., <code>=A1*3/2</code>) directly into cells to construct complex microtonal, generative, or harmonic patterns.
+        </p>
+
+        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">WAV & MIDI Export (Client-side)</h3>
+        <p style="font-size: 13px; line-height: 1.5; color: #b5b5bc;">
+            • <strong>Häviötön WAV Export:</strong> Toiminto tallentaa ääniketjun signaalin reaaliaikaisesti suoraan selaimessasi ilman erillistä palvelinta. Tuloksena on pakkaamaton, CD-laatuinen 16-bittinen stereo-WAV-tiedosto, joka käyttää järjestelmäsi natiivia näytteenottotaajuutta (kuten 44.1kHz tai 48kHz) säilyttäen matemaattisen synteesiäänen puhtaana.
+            <br>• <strong>Mikrotonaalinen MIDI Export:</strong> Vientitiedosto generoi dynaamiset Pitch Bend -tapahtumat jokaiselle nuotille erikseen, jotta mikrotonaaliset taajuudet soivat täsmällisesti DAW-ohjelmissa. Kukin sekvensserin rivi on reititetty omalle MIDI-kanavalleen (0-15), jotta samanaikaiset mikrotonaaliset siirtymät ja vireet eivät häiritse tai ylikirjoita toisiaan.
         </p>
 
         <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">Master Audio Processing (Built-in)</h3>
@@ -348,24 +359,28 @@
         <p style="font-size: 13px; line-height: 1.5; color: #b5b5bc;">
             The Visual Circle maps active frequencies into a 2D geometric space:
             <br>• <strong>Octave / Radius:</strong> Octaves are mapped radially. Lower octaves are positioned on outer rings, while higher octaves sit on inner rings.
-            <br>• <strong>Angle / Pitch Class & Rotation:</strong> The angular position around the center represents the note's pitch class relative to octave boundaries. By default, 440Hz is placed straight up (aligned with the first TET line). You can adjust this reference frequency in the visualizer controls to rotate the entire circle and align any frequency to the grid.
-            <br>• <strong>Color Palette (Octave-Repeating):</strong> Hues are calculated dynamically from the note's fractional position within its octave relative to the custom reference frequency. This ensures that a single octave spans the entire color wheel, meaning notes in different octaves with the exact same pitch class (e.g., A220, A440, A880) share the exact same color.
+            <br>• <strong>Angle / Pitch Class:</strong> The angular position around the center represents the note's pitch class relative to octave boundaries (computed using logarithmic scaling <code>Math.log2(hz) % 1</code>).
+            <br>• <strong>Color Palette (Octave-Repeating):</strong> Hues are calculated dynamically from the note's fractional position within its octave (<code>Math.log2(hz) % 1</code> mapped to 360° HSL space). This ensures that a single octave spans the entire color wheel, meaning notes in different octaves with the exact same pitch class (e.g., A220, A440, A880) share the exact same color.
             <br>• <strong>TET Divisions:</strong> Enter any Equal Temperament (TET) value in the input box to draw dark gray dividing rays, allowing you to easily visualize microtonal alignments relative to arbitrary divisions of the octave.
         </p>
 
         <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">Keyboard Shortcuts (Hotkeys)</h3>
         <ul style="list-style-type: none; padding-left: 0; line-height: 1.8; font-size: 13px; color: #ccc;">
-            <li><strong style="color:#fff">SPACE:</strong> Play / Pause sequencer</li>
+            <li><strong style="color:#fff">SPACE:</strong> Play / Pause sequencer (Confirms OK and Apply inside modal overlays)</li>
             <li><strong style="color:#fff">S:</strong> Stop playback and reset to start</li>
             <li><strong style="color:#fff">W:</strong> Go to the start of the sequence</li>
             <li><strong style="color:#fff">A:</strong> Move playback head one step backward (when paused)</li>
             <li><strong style="color:#fff">D:</strong> Move playback head one step forward (when paused)</li>
             <li><strong style="color:#fff">E:</strong> Switch to EDIT tool</li>
             <li><strong style="color:#fff">C:</strong> Switch to COPY tool</li>
+            <li><strong style="color:#fff">X:</strong> Switch to COPY ABS tool (Absolute copy without shifting references)</li>
             <li><strong style="color:#fff">V:</strong> Switch to PASTE tool</li>
             <li><strong style="color:#fff">R:</strong> Switch to ERASE tool</li>
             <li><strong style="color:#fff">F:</strong> Switch to REF tool</li>
             <li><strong style="color:#fff">H:</strong> Toggle View Hz mode On/Off</li>
+            <li><strong style="color:#fff">1 - 7:</strong> Select respective frequency preset as active tool</li>
+            <li><strong style="color:#fff">8:</strong> Shift all presets down one octave (-OCT)</li>
+            <li><strong style="color:#fff">9:</strong> Shift all presets up one octave (+OCT)</li>
             <li><strong style="color:#fff">Z:</strong> Undo last action</li>
         </ul>
         <div style="text-align: center; margin-top: 25px;">
@@ -395,7 +410,7 @@
     <div class="overlay-content">
         <h3 style="color:var(--accent)">System Message</h3>
         <p id="custom-alert-msg" style="margin: 20px 0; font-size: 16px; color: #fff;"></p>
-        <button onclick="closeAlert()">OK</button>
+        <button id="custom-alert-ok-btn" onclick="closeAlert()">OK</button>
     </div>
 </div>
 
@@ -444,8 +459,34 @@
             <label class="op-label"><input type="radio" name="refOp" value="/"> Divide (/)</label>
         </div>
         <div style="display:flex; gap:10px; justify-content:center;">
-            <button onclick="applyRefFormula()">APPLY</button>
+            <button id="ref-overlay-apply-btn" onclick="applyRefFormula()">APPLY</button>
             <button onclick="closeRefOverlay()" style="border-color:#555; color:#888;">CANCEL</button>
+        </div>
+    </div>
+</div>
+
+<!-- ALT HZ MODAL OVERLAY -->
+<div id="althz-overlay" class="overlay">
+    <div class="overlay-content" style="max-width: 450px;">
+        <h3 style="color:var(--accent)">Modify Preset Frequency</h3>
+        <div id="althz-current-preset-info" style="font-size: 14px; margin-bottom: 12px; color: #fff;"></div>
+        
+        <!-- Info list about other presets -->
+        <div style="background: #111; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 15px; text-align: left; font-size: 12px;">
+            <strong style="color:var(--accent)">Other Presets (References):</strong>
+            <div id="althz-presets-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px; color: #ccc;">
+                <!-- Filled dynamically (e.g. R1: 220 Hz, R2: 330 Hz...) -->
+            </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:5px; text-align:left; margin-bottom: 15px;">
+            <label style="font-size: 12px; color: #aaa;">Enter Value or Formula (e.g., 440 or R2 * 1.5):</label>
+            <input type="text" id="althz-formula-input" style="width: 100%; font-size: 14px; padding: 8px; box-sizing: border-box;" placeholder="e.g. R2 * 3/2" onkeydown="if(event.key === 'Enter') applyAltHzFormula()">
+        </div>
+
+        <div style="display:flex; gap:10px; justify-content:center;">
+            <button onclick="applyAltHzFormula()">APPLY</button>
+            <button onclick="closeAltHzOverlay()" style="border-color:#555; color:#888;">CANCEL</button>
         </div>
     </div>
 </div>
@@ -600,11 +641,17 @@
     let currentTool = 'edit';
     let viewHzMode = true;
     let clipboardValue = "";
+    let clipboardSourceCell = null; // Kopioitavan solun koordinaatit suhteellista siirtoa varten
+    let clipboardIsAbsolute = false; // Määrittää onko kopiointi absoluuttinen (COPY ABS) vai suhteellinen
     let undoStack = [];
     let tempStateBeforeEdit = null;
     let refTargetCell = null;
     let refSourceCellStr = "";
     let currentRefType = null;
+    let lastSelectedCell = null; // Seuraa viimeksi valittua tai klikattua solua pikataajuuksia varten
+
+    // 1-7 pikanäppäinten taajuustallenteet (muokattavissa)
+    let freqPresets = [220, 330, 440, 550, 660, 770, 880];
 
     // Visualizer Zoom
     let visualizerZoom = 1.0;
@@ -618,6 +665,10 @@
     function showAlert(msg) {
         document.getElementById('custom-alert-msg').innerText = msg;
         document.getElementById('custom-alert').style.display = 'flex';
+    }
+
+    function initDefaultSequencer() {
+        sequencers.push(new Sequencer(0));
     }
 
     function closeAlert() {
@@ -649,6 +700,7 @@
         if(masterGainNode) masterGainNode.gain.value = val;
     }
 
+    // Alustetaan MIDI-laitteiden haku
     if (navigator.requestMIDIAccess) {
         navigator.requestMIDIAccess().then(access => {
             const select = document.getElementById('midiOutSelect');
@@ -680,6 +732,266 @@
     function updateRefHz(val) {
         if (viewHzMode) {
             updateAllCells();
+        }
+    }
+
+    // Apuohjelmat soluviittausten muuttamiseen suhteellisesti kopioidessa ja liittäessä
+    function labelToColIndex(colStr) {
+        let cIdx = 0;
+        for(let i = 0; i < colStr.length; i++) {
+            cIdx = cIdx * 26 + (colStr.charCodeAt(i) - 64);
+        }
+        return cIdx - 1; // 0-indeksoitu sarake
+    }
+
+    function colIndexToLabel(i) {
+        let label = "";
+        while (i >= 0) { 
+            label = String.fromCharCode((i % 26) + 65) + label; 
+            i = Math.floor(i / 26) - 1; 
+        }
+        return label;
+    }
+
+    function adjustFormulaRelatively(formula, src, dest) {
+        const rowOffset = dest.r - src.r;
+        const colOffset = dest.c - src.c;
+        
+        // Etsitään kaikki soluviittaukset (kuten A1, B12, AA2) kaavasta ja siirretään ne suhteellisesti
+        return formula.replace(/([A-Z]+)([0-9]+)/g, (match, colStr, rowStr) => {
+            let colIdx = labelToColIndex(colStr);
+            let rowIdx = parseInt(rowStr) - 1;
+            
+            let newColIdx = colIdx + colOffset;
+            let newRowIdx = rowIdx + rowOffset;
+            
+            // Pidetään koordinaatit vähintään nollassa (rajojen suojelu)
+            if (newColIdx < 0) newColIdx = 0;
+            if (newRowIdx < 0) newRowIdx = 0;
+            
+            return colIndexToLabel(newColIdx) + (newRowIdx + 1);
+        });
+    }
+
+    // Väläyttää nopeasti oranssinkeltaisella solut, joihin liitetyssä kaavassa viitataan
+    function flashReferencedCells(id, formula) {
+        const matches = formula.match(/([A-Z]+)([0-9]+)/g);
+        if (!matches) return;
+        matches.forEach(match => {
+            const m = match.match(/([A-Z]+)([0-9]+)/);
+            if (m) {
+                const colStr = m[1];
+                const rowStr = m[2];
+                const cIdx = labelToColIndex(colStr);
+                const rIdx = parseInt(rowStr) - 1;
+                const cellEl = document.getElementById(`cell-${id}-${rIdx}-${cIdx}`);
+                if (cellEl) {
+                    flashCell(cellEl, '#ffaa00'); // Nopea keltainen/oranssi välähdys viitatulle solulle
+                }
+            }
+        });
+    }
+
+    // Piirtää 1-7 taajuuspainikkeet yläpalkkiin sekä + / - oktaavisiirrot ja ALT HZ oikealle puolelle pikanäppäinvihjeineen
+    function renderFreqPresets() {
+        const container = document.getElementById('freq-presets-container');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        for (let i = 0; i < 7; i++) {
+            const num = i + 1;
+            const freq = freqPresets[i];
+            
+            const group = document.createElement('div');
+            group.className = 'label-group';
+            group.style.alignItems = 'center';
+            
+            const btn = document.createElement('button');
+            btn.id = `btn-preset-preset${i}`;
+            btn.className = 'preset-btn';
+            if (currentTool === `preset${i}`) {
+                btn.className += ' active-tool';
+            }
+            btn.innerText = `${freq} Hz`;
+            btn.title = "Click to select as tool, Right-click to edit";
+            btn.style.fontSize = "11px";
+            btn.style.padding = "6px 10px";
+            btn.style.borderColor = "var(--accent)";
+            
+            btn.onclick = () => setTool(`preset${i}`);
+            btn.oncontextmenu = (e) => {
+                e.preventDefault();
+                editPresetFrequency(i);
+            };
+            
+            const span = document.createElement('span');
+            span.className = 'kb-hint';
+            span.innerText = `${num}`;
+            
+            group.appendChild(btn);
+            group.appendChild(span);
+            container.appendChild(group);
+        }
+
+        // Luodaan erillinen sivuryhmittely oktaavipainikkeille ja ALT HZ:lle omilla pikanäppäinvihjeillään
+        const octGroup = document.createElement('div');
+        octGroup.style.display = 'flex';
+        octGroup.style.gap = '4px';
+        octGroup.style.marginLeft = '8px';
+
+        // 1. -OCT painike ja sen vihje "8" käärittynä pystysuuntaiseen säiliöön
+        const minusGroup = document.createElement('div');
+        minusGroup.className = 'label-group';
+        minusGroup.style.alignItems = 'center';
+
+        const minusBtn = document.createElement('button');
+        minusBtn.innerText = "-OCT";
+        minusBtn.title = "Shift all presets down one octave (/2) [Hotkey 8]";
+        minusBtn.style.fontSize = "11px";
+        minusBtn.style.padding = "6px 10px";
+        minusBtn.style.borderColor = "#888";
+        minusBtn.style.color = "#ccc";
+        minusBtn.onclick = () => shiftPresetsOctave(-1);
+
+        const minusSpan = document.createElement('span');
+        minusSpan.className = 'kb-hint';
+        minusSpan.innerText = "8";
+
+        minusGroup.appendChild(minusBtn);
+        minusGroup.appendChild(minusSpan);
+
+        // 2. +OCT painike ja sen vihje "9" käärittynä pystysuuntaiseen säiliöön
+        const plusGroup = document.createElement('div');
+        plusGroup.className = 'label-group';
+        plusGroup.style.alignItems = 'center';
+
+        const plusBtn = document.createElement('button');
+        plusBtn.innerText = "+OCT";
+        plusBtn.title = "Shift all presets up one octave (*2) [Hotkey 9]";
+        plusBtn.style.fontSize = "11px";
+        plusBtn.style.padding = "6px 10px";
+        plusBtn.style.borderColor = "#888";
+        plusBtn.style.color = "#ccc";
+        plusBtn.onclick = () => shiftPresetsOctave(1);
+
+        const plusSpan = document.createElement('span');
+        plusSpan.className = 'kb-hint';
+        plusSpan.innerText = "9";
+
+        plusGroup.appendChild(plusBtn);
+        plusGroup.appendChild(plusSpan);
+
+        // 3. ALT HZ painike omassa säiliössään tyhjällä tilavihjeellä symmetrian ja korkeusasettelun säilyttämiseksi
+        const altHzGroup = document.createElement('div');
+        altHzGroup.className = 'label-group';
+        altHzGroup.style.alignItems = 'center';
+
+        const altHzBtn = document.createElement('button');
+        altHzBtn.innerText = "ALT HZ";
+        altHzBtn.title = "Modify active preset with formula or value";
+        altHzBtn.style.fontSize = "11px";
+        altHzBtn.style.padding = "6px 10px";
+        altHzBtn.style.borderColor = "var(--accent)";
+        altHzBtn.onclick = () => openAltHzOverlay();
+
+        const altHzSpan = document.createElement('span');
+        altHzSpan.className = 'kb-hint';
+        altHzSpan.innerHTML = "&nbsp;"; // Tyhjä merkkivihje pitää painikkeen samalla korkeustasolla muiden kanssa
+
+        altHzGroup.appendChild(altHzBtn);
+        altHzGroup.appendChild(altHzSpan);
+
+        // Lisätään kaikki osat oktaavi- ja säätöryhmään
+        octGroup.appendChild(minusGroup);
+        octGroup.appendChild(plusGroup);
+        octGroup.appendChild(altHzGroup);
+        container.appendChild(octGroup);
+    }
+
+    // Muuttaa kaikkien esiasetusten taajuuksia oktaavin verran ylös tai alas
+    function shiftPresetsOctave(direction) {
+        const multiplier = direction > 0 ? 2 : 0.5;
+        freqPresets = freqPresets.map(f => {
+            let newFreq = f * multiplier;
+            return Math.round(newFreq * 100) / 100;
+        });
+        renderFreqPresets();
+    }
+
+    // Muokkaa preset-painikkeen taajuutta prompt-ikkunalla
+    function editPresetFrequency(index) {
+        const oldFreq = freqPresets[index];
+        const newFreqStr = prompt(`Set frequency for preset #${index + 1}:`, oldFreq);
+        if (newFreqStr !== null) {
+            const newFreq = parseFloat(newFreqStr);
+            if (newFreq > 0) {
+                freqPresets[index] = newFreq;
+                renderFreqPresets();
+            } else {
+                showAlert("Invalid frequency!");
+            }
+        }
+    }
+
+    // Avaa ALT HZ -paneelin kaavapohjaista muokkausta varten
+    function openAltHzOverlay() {
+        if (!currentTool.startsWith('preset')) {
+            showAlert("Select a Preset Tool (1-7) first!");
+            return;
+        }
+        const idx = parseInt(currentTool.replace('preset', ''));
+        
+        document.getElementById('althz-current-preset-info').innerHTML = `Modifying <strong>Preset #${idx + 1}</strong> (Current: ${freqPresets[idx]} Hz)`;
+        
+        const listContainer = document.getElementById('althz-presets-list');
+        listContainer.innerHTML = '';
+        for (let i = 0; i < 7; i++) {
+            const div = document.createElement('div');
+            const isSelf = (i === idx) ? ' <span style="color:#666;">(self)</span>' : '';
+            div.innerHTML = `<strong>R${i+1}</strong>: ${freqPresets[i]} Hz${isSelf}`;
+            listContainer.appendChild(div);
+        }
+        
+        document.getElementById('althz-formula-input').value = "";
+        document.getElementById('althz-overlay').style.display = 'flex';
+        document.getElementById('althz-formula-input').focus();
+    }
+
+    function closeAltHzOverlay() {
+        document.getElementById('althz-overlay').style.display = 'none';
+    }
+
+    function applyAltHzFormula() {
+        if (!currentTool.startsWith('preset')) return closeAltHzOverlay();
+        const idx = parseInt(currentTool.replace('preset', ''));
+        let rawInput = document.getElementById('althz-formula-input').value.trim();
+        if (!rawInput) {
+            showAlert("Please enter a value or formula.");
+            return;
+        }
+        
+        // Parsitaan kaava: korvataan R1-R7 vastaavilla taajuuksilla
+        let parsedFormula = rawInput.toUpperCase();
+        parsedFormula = parsedFormula.replace(/R([1-7])/g, (match, p1) => {
+            const refIdx = parseInt(p1) - 1;
+            return freqPresets[refIdx];
+        });
+        
+        try {
+            // Varmistetaan turvallinen matemaattinen evaluaatio ilman mielivaltaisen koodin suorittamista
+            if (!/^[0-9.+\-*/()\s]+$/.test(parsedFormula)) {
+                throw new Error("Invalid characters in expression");
+            }
+            const result = eval(parsedFormula);
+            if (isNaN(result) || !isFinite(result) || result <= 0) {
+                throw new Error("Result must be a positive number");
+            }
+            
+            freqPresets[idx] = Math.round(result * 100) / 100;
+            renderFreqPresets();
+            closeAltHzOverlay();
+        } catch (e) {
+            showAlert("Invalid formula or expression! " + e.message);
         }
     }
 
@@ -1229,7 +1541,9 @@
         currentTool = tool;
         refTargetCell = null;
         document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
-        const btn = document.getElementById(`btn-tool-${tool}`);
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active-tool'));
+        
+        const btn = document.getElementById(`btn-tool-${tool}`) || document.getElementById(`btn-preset-${tool}`);
         if(btn) btn.classList.add('active-tool');
         
         // Ensure View Hz button remains visual if viewHzMode is active
@@ -1239,11 +1553,17 @@
         const inputs = document.querySelectorAll('td input');
         inputs.forEach(inp => {
             inp.classList.remove('cursor-copy', 'cursor-paste', 'cursor-erase', 'cursor-ref');
-            if(tool === 'copy') inp.classList.add('cursor-copy');
+            if(tool === 'copy' || tool === 'copyabs') inp.classList.add('cursor-copy');
             if(tool === 'paste') inp.classList.add('cursor-paste');
             if(tool === 'erase') inp.classList.add('cursor-erase');
             if(tool === 'ref') inp.classList.add('cursor-ref');
+            if(tool.startsWith('preset')) inp.classList.add('cursor-paste');
         });
+
+        // Jos Ref-työkalu valitaan, näytetään ensin opaste kohdesolun valitsemisesta
+        if (tool === 'ref') {
+            showAlert("Select the Target Cell");
+        }
     }
 
     function toggleViewHz() {
@@ -1321,6 +1641,8 @@
     }
 
     function handleCellClick(id, r, c, el) {
+        lastSelectedCell = {id, r, c}; // Asetetaan viimeksi klikatuksi soluksi pikataajuuksia varten
+
         if (sequencers[id].selectedSound === 'drums' && currentTool === 'edit') {
              el.blur(); pushUndo();
              const val = sequencers[id].activeDrumBrush;
@@ -1330,13 +1652,63 @@
         if (currentTool === 'edit') return;
         
         el.blur();
-        if (currentTool === 'copy') { clipboardValue = sequencers[id].data[r][c]; flashCell(el); }
-        else if (currentTool === 'paste') { pushUndo(); sequencers[id].data[r][c] = clipboardValue; el.value = clipboardValue; }
-        else if (currentTool === 'erase') { pushUndo(); sequencers[id].data[r][c] = ""; el.value = ""; }
+        if (currentTool.startsWith('preset')) {
+            const pIdx = parseInt(currentTool.replace('preset', ''));
+            const freq = freqPresets[pIdx];
+            pushUndo();
+            sequencers[id].data[r][c] = freq.toString();
+            el.value = freq.toString();
+            
+            if (viewHzMode) {
+                updateAllCells();
+            }
+            flashCell(el);
+        }
+        else if (currentTool === 'copy' || currentTool === 'copyabs') { 
+            clipboardValue = sequencers[id].data[r][c]; 
+            clipboardSourceCell = {id, r, c}; // Tallennetaan kopioitavan solun koordinaatit
+            clipboardIsAbsolute = (currentTool === 'copyabs'); // Asetetaan tila absoluuttisen kopioinnin mukaan
+            flashCell(el); 
+        }
+        else if (currentTool === 'paste') { 
+            pushUndo(); 
+            let newValue = clipboardValue;
+            // Muutetaan kaava suhteellisesti, jos liitetään kaava ja kopioitavan solun koordinaatit ovat tiedossa (ja liitos ei ole absoluuttinen)
+            if (newValue.startsWith('=') && clipboardSourceCell && !clipboardIsAbsolute) {
+                newValue = adjustFormulaRelatively(newValue, clipboardSourceCell, {id, r, c});
+            }
+            sequencers[id].data[r][c] = newValue; 
+            el.value = newValue; 
+
+            // Päivitetään taulukko ENSIN, jotta flashCell kaappaa uudet taustavärit talteen palautusta varten
+            if (viewHzMode) {
+                updateAllCells();
+            }
+
+            // Väläytetään liitettyä solua vihreänä (tämä palautuu nyt uuteen oikeaan hertsiväriinsä)
+            flashCell(el); 
+
+            // Väläytetään nopeasti soluja, joihin liitetty kaava viittaa (nämäkin palautuvat omiin oikeisiin väreihinsä)
+            if (newValue.startsWith('=')) {
+                flashReferencedCells(id, newValue);
+            }
+        }
+        else if (currentTool === 'erase') { 
+            pushUndo(); 
+            sequencers[id].data[r][c] = ""; 
+            el.value = ""; 
+            if (viewHzMode) {
+                updateAllCells(); // Päivittää välittömästi värit ja hertsit, jos View Hz on On
+            }
+        }
         else if (currentTool === 'ref') {
             if (!refTargetCell) {
-                refTargetCell = {id, r, c}; flashCell(el, '#0095ff'); showAlert("Select Reference Cell");
-            } else { openRefOverlay(id, r, c); }
+                refTargetCell = {id, r, c}; 
+                flashCell(el, '#0095ff'); 
+                showAlert("Select the Reference Cell"); // Toinen vaihe ohjeistaa valitsemaan viitesolun täsmällisellä tekstillä
+            } else { 
+                openRefOverlay(id, r, c); 
+            }
         }
     }
 
@@ -1349,12 +1721,14 @@
     function handleCellFocus(el) { 
         if (currentTool === 'edit') tempStateBeforeEdit = getSessionJSON(); 
         
+        const idParts = el.id.split('-');
+        const id = parseInt(idParts[1]);
+        const r = parseInt(idParts[2]);
+        const c = parseInt(idParts[3]);
+        lastSelectedCell = {id, r, c}; // Seuraa solua myös silloin, kun siihen syötetään tekstiä
+
         // Show raw data for editing when focused in View Hz mode
         if (viewHzMode) {
-            const idParts = el.id.split('-');
-            const id = parseInt(idParts[1]);
-            const r = parseInt(idParts[2]);
-            const c = parseInt(idParts[3]);
             const seq = sequencers[id];
             if (seq && seq.selectedSound !== 'drums') {
                 el.value = seq.data[r][c] || "";
@@ -1445,6 +1819,9 @@
 
     function togglePlay() {
         if (isPlaying) { 
+            if (window.isRecordingWav) {
+                window.stopWavRecordingAndDownload();
+            }
             isPlaying = false; document.getElementById('playBtn').innerText = "PLAY"; 
             clearTimeout(timerID); sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
         } else {
@@ -1455,6 +1832,9 @@
     }
 
     function stopAll() {
+        if (window.isRecordingWav) {
+            window.stopWavRecordingAndDownload();
+        }
         isPlaying = false; document.getElementById('playBtn').innerText = "PLAY";
         clearTimeout(timerID); sequencers.forEach(s => s && s.kill(audioCtx.currentTime));
         masterStep = 0; updateUI();
@@ -1666,51 +2046,68 @@
         reader.readAsText(file);
     }
 
-    // Alustaa ensimmäisen sekvensserin vasta sen jälkeen, kun globaali sequencers-taulukko on valmis
-    function initDefaultSequencer() {
-        sequencers.push(new Sequencer(0));
-    }
-
     function addNewSequencer() { pushUndo(); sequencers.push(new Sequencer(sequencers.length)); }
     function removeSequencer(id) { 
         if (confirm("Remove sequencer?")) { pushUndo(); document.getElementById(`seq-box-${id}`).remove(); sequencers[id] = null; } 
     }
 
-    function exportAllMidi() {
-        const midi = new Midi(); const bpm = document.getElementById('bpm').value; midi.header.setTempo(bpm);
-        sequencers.forEach(s => {
-            if (!s) return;
-            const track = midi.addTrack(); const stepDur = 60 / bpm / 4;
-            for (let r = 0; r < s.rows; r++) {
-                let lastHz = 0, startTime = 0;
-                for (let c = 0; c < 64; c++) {
-                    let hz = s.evaluateCell(r, c % s.cols);
-                    if ((s.data[r] && s.data[r][c % s.cols]) !== "") {
-                        if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: (c*stepDur)-startTime });
-                        lastHz = hz; startTime = c * stepDur;
-                    }
-                }
-                if (lastHz > 0) track.addNote({ midi: Math.round(12*Math.log2(lastHz/440)+69), time: startTime, duration: stepDur });
-            }
-        });
-        const blob = new Blob([midi.toArray()], {type: "audio/midi"});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = "session_export.mid"; a.click();
-    }
-
     window.onkeydown = (e) => {
-        const isInput = e.target.tagName === "INPUT"; if (isInput) return;
+        const isInput = e.target.tagName === "INPUT";
         const key = e.key.toLowerCase();
+        
+        // Vahvistetaan dynaamiset viesti- ja REF-ikkunat Space-painikkeella riippumatta siitä onko syöttökenttä aktiivinen
+        if (e.code === "Space") {
+            const customAlert = document.getElementById('custom-alert');
+            const refOverlay = document.getElementById('ref-overlay');
+            const altHzOverlay = document.getElementById('althz-overlay');
+            
+            if (customAlert && customAlert.style.display === 'flex') {
+                e.preventDefault();
+                closeAlert();
+                return;
+            }
+            if (refOverlay && refOverlay.style.display === 'flex') {
+                e.preventDefault();
+                applyRefFormula();
+                return;
+            }
+            // Älä kaappaa Space-näppäintä jos ollaan kirjoittamassa ALT HZ:n syöttökenttään
+            if (altHzOverlay && altHzOverlay.style.display === 'flex' && !isInput) {
+                e.preventDefault();
+                applyAltHzFormula();
+                return;
+            }
+        }
+
+        // Jos ollaan kirjoittamassa tekstiä normaalissa syöttökentässä, ohitetaan pikanäppäimet
+        if (isInput) return;
+        
         if (e.code === "Space") { e.preventDefault(); togglePlay(); }
         if (key === "s") stopAll();
         if (key === "w") resetToStart();
         if (key === "e") setTool('edit');
         if (key === "c") setTool('copy');
+        if (key === "x") setTool('copyabs'); // Kopioi absoluuttisesti pikanäppäimellä X
         if (key === "v") setTool('paste');
         if (key === "r") setTool('erase');
         if (key === "f") setTool('ref');
         if (key === "h") toggleViewHz();
         if (key === "z") performUndo();
+        
+        // Pikanäppäimet 1-7 preset-taajuustyökalujen valitsemiseen
+        if (key >= "1" && key <= "7") {
+            const index = parseInt(key) - 1;
+            setTool(`preset${index}`);
+        }
+
+        // Pikanäppäimet 8 ja 9 oktaavin siirtoihin
+        if (key === "8") {
+            shiftPresetsOctave(-1);
+        }
+        if (key === "9") {
+            shiftPresetsOctave(1);
+        }
+        
         if (!isPlaying) {
             if (key === "a") { masterStep = Math.max(0, masterStep - 1); updateUI(); }
             if (key === "d") { masterStep++; updateUI(); }
@@ -1718,6 +2115,7 @@
     };
 
     initDefaultSequencer();
+    renderFreqPresets(); // Alustaa dynaamiset pikanäppäinten taajuuspainikkeet käynnistyksessä
 </script>
 </body>
 </html>
