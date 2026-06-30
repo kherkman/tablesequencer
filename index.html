@@ -118,9 +118,13 @@
         }
 
         .overlay-content {
-            background: var(--panel); padding: 40px; border-radius: 20px;
-            border: 1px solid var(--accent); text-align: center; max-width: 500px;
+            background: var(--panel); padding: 30px; border-radius: 20px;
+            border: 1px solid var(--accent); text-align: center; max-width: 600px;
+            width: 90%;
+            max-height: 85vh;
+            overflow-y: auto;
             display: flex; flex-direction: column; gap: 15px;
+            box-sizing: border-box;
         }
 
         /* Interval List Styles */
@@ -218,6 +222,16 @@
 
         canvas { background: #000; border: 1px solid #333; border-radius: 4px; width: 100%; }
 
+        /* Kohdennettu säännöstö visualisointialustalle mobiililaajennettavuuteen */
+        #circleCanvas {
+            max-width: 100%;
+            height: auto;
+            aspect-ratio: 1 / 1;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+        }
+
         /* REF Overlay Styles */
         .ref-options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
         .ref-btn { font-size: 12px; padding: 10px; }
@@ -275,7 +289,7 @@
         <span class="kb-hint">F</span>
     </div>
     <div class="label-group">
-        <button onclick="toggleViewHz()" id="viewHzBtn" class="tool-btn">VIEW HZ: OFF</button>
+        <button onclick="toggleViewHz()" id="viewHzBtn" class="tool-btn active-tool">VIEW HZ: ON</button>
         <span class="kb-hint">H</span>
     </div>
     <div class="label-group">
@@ -315,13 +329,32 @@
 
 <!-- Info Overlay -->
 <div id="info-overlay" class="overlay">
-    <div class="overlay-content" style="max-width: 600px; text-align: left;">
-        <h2 style="color:var(--accent); text-align: center;">Excel-Synth Info</h2>
-        <p style="font-size: 16px; line-height: 1.5; margin-bottom: 15px;">
-            Welcome to the Table Sequencer! Enter raw frequencies (e.g., <code>440</code>) or spreadsheet-style formulas (e.g., <code>=A1*3/2</code>) directly into cells to construct complex microtonal, generative, or harmonic intervals.
+    <div class="overlay-content" style="max-width: 650px; text-align: left;">
+        <h2 style="color:var(--accent); text-align: center; margin-top: 0;">Excel-Synth Info & Guide</h2>
+        
+        <p style="font-size: 15px; line-height: 1.5; margin-bottom: 15px; color: #ccc;">
+            Welcome to the Table Sequencer! Enter raw frequencies (e.g., <code>440</code>) or spreadsheet-style formulas (e.g., <code>=A1*3/2</code>) directly into cells to construct complex microtonal, generative, or harmonic patterns.
         </p>
-        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px;">Keyboard Shortcuts (Hotkeys)</h3>
-        <ul style="list-style-type: none; padding-left: 0; line-height: 1.8; font-size: 14px; color: #ccc;">
+
+        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">Master Audio Processing (Built-in)</h3>
+        <p style="font-size: 13px; line-height: 1.5; color: #b5b5bc;">
+            To keep the output clean, safe, and balanced, the master output is permanently processed through:
+            <br>• <strong>Master High-Pass Filter (HPF):</strong> Set at 25Hz to eliminate low sub-bass mud and DC offset rumble.
+            <br>• <strong>Master Low-Pass Filter (LPF):</strong> Set at 19kHz to soften harsh, high-frequency ultrasonic content.
+            <br>• <strong>Peak Limiter:</strong> A brickwall compressor at -1.0dB with a fast 1ms attack and 100ms release to strictly prevent digital clipping and save your hearing/speakers.
+        </p>
+
+        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">Visual Circle & Color Logic</h3>
+        <p style="font-size: 13px; line-height: 1.5; color: #b5b5bc;">
+            The Visual Circle maps active frequencies into a 2D geometric space:
+            <br>• <strong>Octave / Radius:</strong> Octaves are mapped radially. Lower octaves are positioned on outer rings, while higher octaves sit on inner rings.
+            <br>• <strong>Angle / Pitch Class:</strong> The angular position around the center represents the note's pitch class relative to octave boundaries (computed using logarithmic scaling <code>Math.log2(hz) % 1</code>).
+            <br>• <strong>Color Palette (Octave-Repeating):</strong> Hues are calculated dynamically from the note's fractional position within its octave (<code>Math.log2(hz) % 1</code> mapped to 360° HSL space). This ensures that a single octave spans the entire color wheel, meaning notes in different octaves with the exact same pitch class (e.g., A220, A440, A880) share the exact same color.
+            <br>• <strong>TET Divisions:</strong> Enter any Equal Temperament (TET) value in the input box to draw dark gray dividing rays, allowing you to easily visualize microtonal alignments relative to arbitrary divisions of the octave.
+        </p>
+
+        <h3 style="color:var(--accent); border-bottom: 1px solid #333; padding-bottom: 5px; margin-top: 20px; font-size: 16px;">Keyboard Shortcuts (Hotkeys)</h3>
+        <ul style="list-style-type: none; padding-left: 0; line-height: 1.8; font-size: 13px; color: #ccc;">
             <li><strong style="color:#fff">SPACE:</strong> Play / Pause sequencer</li>
             <li><strong style="color:#fff">S:</strong> Stop playback and reset to start</li>
             <li><strong style="color:#fff">W:</strong> Go to the start of the sequence</li>
@@ -348,7 +381,7 @@
         <div id="interval-list-container">
             <table id="interval-table">
                 <thead>
-                    <tr><th>Name</th><th>Ratio</th><th>Decimal</th><th>Cents</th></tr>
+                    <tr><th>Name</th><th>Decimal</th><th>Cents</th><th>Ratio</th></tr>
                 </thead>
                 <tbody id="interval-tbody"></tbody>
             </table>
@@ -371,12 +404,18 @@
     <button style="position:absolute; top:30px; right:30px" onclick="toggleVisualizer()">CLOSE</button>
     <div style="color:var(--accent); margin-bottom:10px;">A / D: Siirrä askelta (Pausella)</div>
     
-    <div style="position: absolute; top: 30px; left: 30px; display:flex; flex-direction:column; gap:5px; background:#000; padding:10px; border:1px solid #333; border-radius:6px;">
-        <label style="font-size:11px; color:#aaa;">ZOOM</label>
-        <input type="range" class="vol-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="updateVizZoom(this.value)">
+    <div style="position: absolute; top: 30px; left: 30px; display:flex; flex-direction:column; gap:10px; background:#000; padding:10px; border:1px solid #333; border-radius:6px;">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+            <label style="font-size:11px; color:#aaa;">ZOOM</label>
+            <input type="range" class="vol-slider" min="0.1" max="5.0" step="0.1" value="1.0" oninput="updateVizZoom(this.value)">
+        </div>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+            <label style="font-size:11px; color:#aaa;">TET GRID</label>
+            <input type="number" id="tetGridInput" value="12" min="1" max="100" style="width:60px; background:#111; border:1px solid #444; color:var(--accent);">
+        </div>
     </div>
 
-    <canvas id="circleCanvas" width="800" height="800"></canvas>
+    <canvas id="circleCanvas"></canvas>
 </div>
 
 <!-- REF Tool Overlay -->
@@ -515,8 +554,31 @@
 <script>
     let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let masterGainNode = audioCtx.createGain();
-    masterGainNode.connect(audioCtx.destination);
     masterGainNode.gain.value = 0.5; // Default master vol
+
+    // Master HPF Setup (eliminates low sub-bass rumble)
+    let masterHPF = audioCtx.createBiquadFilter();
+    masterHPF.type = 'highpass';
+    masterHPF.frequency.value = 25;
+
+    // Master LPF Setup (smooths out high-frequency ultrasonic harshness)
+    let masterLPF = audioCtx.createBiquadFilter();
+    masterLPF.type = 'lowpass';
+    masterLPF.frequency.value = 19000;
+
+    // Master Limiter Setup (protects hearing and speakers from digital clipping)
+    let masterLimiter = audioCtx.createDynamicsCompressor();
+    masterLimiter.threshold.setValueAtTime(-1.0, audioCtx.currentTime);
+    masterLimiter.knee.setValueAtTime(0, audioCtx.currentTime);
+    masterLimiter.ratio.setValueAtTime(20, audioCtx.currentTime);
+    masterLimiter.attack.setValueAtTime(0.001, audioCtx.currentTime);
+    masterLimiter.release.setValueAtTime(0.1, audioCtx.currentTime);
+
+    // Audio routing chain
+    masterGainNode.connect(masterHPF);
+    masterHPF.connect(masterLPF);
+    masterLPF.connect(masterLimiter);
+    masterLimiter.connect(audioCtx.destination);
 
     let sequencers = [];
     let isPlaying = false;
@@ -530,9 +592,9 @@
     let currentFxSeqId = -1;
     let drawFxInterval = null;
 
-    // Työkalut, View Hz ja Undo
+    // Työkalut, View Hz (default: ON) ja Undo
     let currentTool = 'edit';
-    let viewHzMode = false;
+    let viewHzMode = true;
     let clipboardValue = "";
     let undoStack = [];
     let tempStateBeforeEdit = null;
@@ -598,6 +660,14 @@
             access.onstatechange = updateList;
             select.onchange = () => { midiOutDevice = access.outputs.get(select.value); };
         });
+    }
+
+    // Palauttaa sävelen värisävyn logaritmisesti siten, että yksi täysi oktaavi kattaa 360 asteen spektrikierron
+    function getPitchClassHue(hz) {
+        if (!hz || hz <= 0) return 0;
+        let log2 = Math.log2(hz);
+        let fract = log2 - Math.floor(log2); // Oktaavin sisäinen murto-osa (0.0 - 1.0)
+        return fract * 360;
     }
 
     class Sequencer {
@@ -746,7 +816,8 @@
                         const hz = this.evaluateCell(r, c);
                         if (hz > 0) {
                             displayVal = Math.round(hz * 100) / 100 + " Hz";
-                            bgStyle = `background-color: hsla(${hz % 360}, 85%, 35%, 0.75);`;
+                            const hue = getPitchClassHue(hz);
+                            bgStyle = `background-color: hsla(${hue}, 85%, 35%, 0.75);`;
                             colorStyle = "color: #fff;";
                         } else {
                             displayVal = rawVal ? "0 Hz" : "";
@@ -1190,7 +1261,8 @@
                             const hz = seq.evaluateCell(r, c);
                             if (hz > 0) {
                                 inputEl.value = Math.round(hz * 100) / 100 + " Hz";
-                                inputEl.style.backgroundColor = `hsla(${hz % 360}, 85%, 35%, 0.75)`;
+                                const hue = getPitchClassHue(hz);
+                                inputEl.style.backgroundColor = `hsla(${hue}, 85%, 35%, 0.75)`;
                                 inputEl.style.color = "#fff";
                             } else {
                                 inputEl.value = seq.data[r][c] ? "0 Hz" : "";
@@ -1291,7 +1363,8 @@
                 const hz = seq.evaluateCell(r, c);
                 if (hz > 0) {
                     el.value = Math.round(hz * 100) / 100 + " Hz";
-                    el.style.backgroundColor = `hsla(${hz % 360}, 85%, 35%, 0.75)`;
+                    const hue = getPitchClassHue(hz);
+                    el.style.backgroundColor = `hsla(${hue}, 85%, 35%, 0.75)`;
                     el.style.color = "#fff";
                 } else {
                     el.value = seq.data[r][c] ? "0 Hz" : "";
@@ -1414,9 +1487,9 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${iv.name}</td>
-                    <td>${iv.ratio}</td>
                     <td>${iv.decimal.toFixed(4)}</td>
                     <td>${iv.cents}</td>
+                    <td>${iv.ratio}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1433,35 +1506,117 @@
         visualizerZoom = parseFloat(val);
     }
 
+    // Canvas koon määritys näytön dynaamisen pikselitiheyden (Retina/High-DPI) mukaan suttuisuuden korjaamiseksi
+    function resizeCanvasToDisplaySize(canvas) {
+        const dpr = window.devicePixelRatio || 1;
+        const width = 800;  // suunnittelukoko
+        const height = 800; // suunnittelukoko
+        if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+            canvas.width = Math.floor(width * dpr);
+            canvas.height = Math.floor(height * dpr);
+            canvas.style.width = width + "px";
+            canvas.style.height = height + "px";
+        }
+    }
+
     function drawCircles() {
         const canvas = document.getElementById('circleCanvas');
         const ctx = canvas.getContext('2d');
-        const cx = canvas.width/2, cy = canvas.height/2;
+        
         function frame() {
-            ctx.fillStyle = 'rgba(10,10,12, 0.25)'; ctx.fillRect(0,0, canvas.width, canvas.height);
-            for(let i=1; i<=10; i++) { ctx.beginPath(); ctx.arc(cx, cy, i*35*visualizerZoom, 0, Math.PI*2); ctx.strokeStyle = '#1e1e24'; ctx.stroke(); }
-            ctx.beginPath(); ctx.moveTo(cx, cy-(350*visualizerZoom)); ctx.lineTo(cx, cy); ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+            const dpr = window.devicePixelRatio || 1;
+            resizeCanvasToDisplaySize(canvas);
             
+            ctx.save();
+            ctx.scale(dpr, dpr); // Skaalataan koordinaatisto näytön DPI:n mukaan
+            
+            const cx = 400, cy = 400; // Kiinteä koordinaattikeskipiste scale-kutsun jälkeen
+            
+            ctx.fillStyle = 'rgba(10,10,12, 0.25)'; 
+            ctx.fillRect(0, 0, 800, 800);
+            
+            // 1. Piirretään kehät
+            for(let i=1; i<=10; i++) { 
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, i*35*visualizerZoom, 0, Math.PI*2); 
+                ctx.strokeStyle = '#1e1e24'; 
+                ctx.stroke(); 
+            }
+            
+            // 2. Piirretään dynaamiset TET-ruudukon sädeviivat
+            const tet = parseInt(document.getElementById('tetGridInput')?.value) || 12;
+            ctx.strokeStyle = '#1e1e24';
+            ctx.lineWidth = 1;
+            const maxRadius = 10 * 35 * visualizerZoom;
+            for (let i = 0; i < tet; i++) {
+                const angle = (i / tet) * Math.PI * 2 - Math.PI / 2;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + Math.cos(angle) * maxRadius, cy + Math.sin(angle) * maxRadius);
+                ctx.stroke();
+            }
+            
+            // Vertikaalinen nollatason apuviiva
+            ctx.beginPath(); 
+            ctx.moveTo(cx, cy-(350*visualizerZoom)); 
+            ctx.lineTo(cx, cy); 
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
+            ctx.stroke();
+            
+            // 3. Piirretään aktiiviset sävelet
             sequencers.forEach(seq => {
-                if (!seq) return;
-                // Älä näytä drums-sekvensseriä visualizerissa
-                if (seq.selectedSound === 'drums') return;
+                if (!seq || seq.selectedSound === 'drums') return;
 
                 seq.activeSources.forEach(s => {
                     if (s && s.hz > 0) {
-                        const hz = s.hz; const oct = Math.log2(hz/27.5);
+                        const hz = s.hz; 
+                        const oct = Math.log2(hz/27.5);
                         const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35 * visualizerZoom;
                         const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
                         const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
-                        ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI*2);
-                        ctx.fillStyle = `hsla(${(hz % 360)}, 85%, 60%, 1)`; ctx.fill();
-                        ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
-                        ctx.fillStyle = "#fff"; ctx.font = "bold 11px Arial"; ctx.textAlign = "center";
-                        ctx.fillText(Math.round(hz) + "Hz", x, y - 18);
+                        
+                        const hue = getPitchClassHue(hz);
+                        const ballRadius = 13;
+                        
+                        // Hehkuva loiste pallon alle varjon avulla
+                        ctx.save();
+                        ctx.shadowBlur = 25;
+                        ctx.shadowColor = `hsla(${hue}, 85%, 60%, 0.8)`;
+                        
+                        // Kolmiulotteinen gradientti, joka tummuu reunoja kohti ja loistaa valopisteellä
+                        const grad = ctx.createRadialGradient(
+                            x - ballRadius * 0.2, y - ballRadius * 0.2, ballRadius * 0.1, // Valopisteen keskitys
+                            x, y, ballRadius                                              // Pallon ulkoreuna
+                        );
+                        grad.addColorStop(0, `hsla(${hue}, 95%, 75%, 1)`); // Kirkas kohokohta
+                        grad.addColorStop(0.4, `hsla(${hue}, 85%, 55%, 1)`); // Perusväri
+                        grad.addColorStop(1, `hsla(${hue}, 95%, 20%, 1)`);  // Tummuva ulkoreuna
+                        
+                        ctx.beginPath(); 
+                        ctx.arc(x, y, ballRadius, 0, Math.PI*2);
+                        ctx.fillStyle = grad; 
+                        ctx.fill();
+                        ctx.restore();
+                        
+                        // Tekstien piirto tarkasti ja selkeästi (varjon kera varmentamaan kontrastia)
+                        ctx.fillStyle = "#fff"; 
+                        ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif"; 
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        
+                        ctx.save();
+                        ctx.shadowColor = "black";
+                        ctx.shadowBlur = 4;
+                        ctx.fillText(Math.round(hz) + "Hz", x, y - 22);
+                        ctx.restore();
                     }
                 });
             });
-            if (document.getElementById('visualizer-overlay').style.display === 'flex') requestAnimationFrame(frame);
+            
+            ctx.restore();
+            if (document.getElementById('visualizer-overlay').style.display === 'flex') {
+                requestAnimationFrame(frame);
+            }
         }
         frame();
     }
@@ -1487,6 +1642,11 @@
             session.sequencers.forEach((sData, idx) => { sequencers.push(new Sequencer(idx, sData)); });
         };
         reader.readAsText(file);
+    }
+
+    // Alustaa ensimmäisen sekvensserin vasta sen jälkeen, kun globaali sequencers-taulukko on valmis
+    function initDefaultSequencer() {
+        sequencers.push(new Sequencer(0));
     }
 
     function addNewSequencer() { pushUndo(); sequencers.push(new Sequencer(sequencers.length)); }
@@ -1535,7 +1695,7 @@
         }
     };
 
-    addNewSequencer();
+    initDefaultSequencer();
 </script>
 </body>
 </html>
