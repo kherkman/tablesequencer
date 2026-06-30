@@ -348,8 +348,8 @@
         <p style="font-size: 13px; line-height: 1.5; color: #b5b5bc;">
             The Visual Circle maps active frequencies into a 2D geometric space:
             <br>• <strong>Octave / Radius:</strong> Octaves are mapped radially. Lower octaves are positioned on outer rings, while higher octaves sit on inner rings.
-            <br>• <strong>Angle / Pitch Class:</strong> The angular position around the center represents the note's pitch class relative to octave boundaries (computed using logarithmic scaling <code>Math.log2(hz) % 1</code>).
-            <br>• <strong>Color Palette (Octave-Repeating):</strong> Hues are calculated dynamically from the note's fractional position within its octave (<code>Math.log2(hz) % 1</code> mapped to 360° HSL space). This ensures that a single octave spans the entire color wheel, meaning notes in different octaves with the exact same pitch class (e.g., A220, A440, A880) share the exact same color.
+            <br>• <strong>Angle / Pitch Class & Rotation:</strong> The angular position around the center represents the note's pitch class relative to octave boundaries. By default, 440Hz is placed straight up (aligned with the first TET line). You can adjust this reference frequency in the visualizer controls to rotate the entire circle and align any frequency to the grid.
+            <br>• <strong>Color Palette (Octave-Repeating):</strong> Hues are calculated dynamically from the note's fractional position within its octave relative to the custom reference frequency. This ensures that a single octave spans the entire color wheel, meaning notes in different octaves with the exact same pitch class (e.g., A220, A440, A880) share the exact same color.
             <br>• <strong>TET Divisions:</strong> Enter any Equal Temperament (TET) value in the input box to draw dark gray dividing rays, allowing you to easily visualize microtonal alignments relative to arbitrary divisions of the octave.
         </p>
 
@@ -412,6 +412,10 @@
         <div style="display:flex; flex-direction:column; gap:2px;">
             <label style="font-size:11px; color:#aaa;">TET GRID</label>
             <input type="number" id="tetGridInput" value="12" min="1" max="100" style="width:60px; background:#111; border:1px solid #444; color:var(--accent);">
+        </div>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+            <label style="font-size:11px; color:#aaa;">REF HZ (ROTATION)</label>
+            <input type="number" id="refHzInput" value="440" min="1" max="20000" step="1" oninput="updateRefHz(this.value)" style="width:60px; background:#111; border:1px solid #444; color:var(--accent);">
         </div>
     </div>
 
@@ -662,12 +666,21 @@
         });
     }
 
-    // Palauttaa sävelen värisävyn logaritmisesti siten, että yksi täysi oktaavi kattaa 360 asteen spektrikierron
+    // Palauttaa sävelen värisävyn logaritmisesti suhteessa valittuun referenssitaajuuteen (REF HZ)
     function getPitchClassHue(hz) {
         if (!hz || hz <= 0) return 0;
-        let log2 = Math.log2(hz);
-        let fract = log2 - Math.floor(log2); // Oktaavin sisäinen murto-osa (0.0 - 1.0)
+        const refHzInput = document.getElementById('refHzInput');
+        const f_ref = refHzInput ? (parseFloat(refHzInput.value) || 440) : 440;
+        let diff = Math.log2(hz / f_ref);
+        let fract = diff - Math.floor(diff); // Oktaavin sisäinen murto-osa suhteessa referenssiin (0.0 - 1.0)
         return fract * 360;
+    }
+
+    // Päivittää solut, kun referenssitaajuutta muokataan
+    function updateRefHz(val) {
+        if (viewHzMode) {
+            updateAllCells();
+        }
     }
 
     class Sequencer {
@@ -1362,8 +1375,8 @@
             if (seq && seq.selectedSound !== 'drums') {
                 const hz = seq.evaluateCell(r, c);
                 if (hz > 0) {
-                    el.value = Math.round(hz * 100) / 100 + " Hz";
                     const hue = getPitchClassHue(hz);
+                    el.value = Math.round(hz * 100) / 100 + " Hz";
                     el.style.backgroundColor = `hsla(${hue}, 85%, 35%, 0.75)`;
                     el.style.color = "#fff";
                 } else {
@@ -1509,8 +1522,8 @@
     // Canvas koon määritys näytön dynaamisen pikselitiheyden (Retina/High-DPI) mukaan suttuisuuden korjaamiseksi
     function resizeCanvasToDisplaySize(canvas) {
         const dpr = window.devicePixelRatio || 1;
-        const width = 800;  // suunnittelukoko
-        const height = 800; // suunnittelukoko
+        const width = 800;  // suunnittelukoko (CSS-pikselit)
+        const height = 800; // suunnittelukoko (CSS-pikselit)
         if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
             canvas.width = Math.floor(width * dpr);
             canvas.height = Math.floor(height * dpr);
@@ -1528,9 +1541,9 @@
             resizeCanvasToDisplaySize(canvas);
             
             ctx.save();
-            ctx.scale(dpr, dpr); // Skaalataan koordinaatisto näytön DPI:n mukaan
+            ctx.scale(dpr, dpr); // Skaalataan koordinaatisto näytön dynaamisen DPI-tarkkuuden mukaan
             
-            const cx = 400, cy = 400; // Kiinteä koordinaattikeskipiste scale-kutsun jälkeen
+            const cx = 400, cy = 400; // Suunnittelukeskipiste
             
             ctx.fillStyle = 'rgba(10,10,12, 0.25)'; 
             ctx.fillRect(0, 0, 800, 800);
@@ -1556,7 +1569,11 @@
                 ctx.stroke();
             }
             
-            // Vertikaalinen nollatason apuviiva
+            // Haetaan pyörityksen referenssi (REF HZ)
+            const refHzInput = document.getElementById('refHzInput');
+            const f_ref = refHzInput ? (parseFloat(refHzInput.value) || 440) : 440;
+
+            // Vertikaalinen referenssitason apuviiva (vastaa valittua REF HZ:iä)
             ctx.beginPath(); 
             ctx.moveTo(cx, cy-(350*visualizerZoom)); 
             ctx.lineTo(cx, cy); 
@@ -1572,25 +1589,30 @@
                         const hz = s.hz; 
                         const oct = Math.log2(hz/27.5);
                         const radius = (11 - Math.min(Math.max(oct, 1), 10)) * 35 * visualizerZoom;
-                        const angle = (Math.log2(hz) % 1) * Math.PI * 2 - Math.PI/2;
+                        
+                        // Lasketaan kulma suhteessa käyttäjän asettamaan referenssitaajuuteen (f_ref)
+                        const diff = Math.log2(hz / f_ref);
+                        const fract = diff - Math.floor(diff);
+                        const angle = fract * Math.PI * 2 - Math.PI/2;
+                        
                         const x = cx + Math.cos(angle)*radius, y = cy + Math.sin(angle)*radius;
                         
                         const hue = getPitchClassHue(hz);
                         const ballRadius = 13;
                         
-                        // Hehkuva loiste pallon alle varjon avulla
+                        // Hohtava neonloiste pallon alle dynaamisen varjon avulla
                         ctx.save();
                         ctx.shadowBlur = 25;
                         ctx.shadowColor = `hsla(${hue}, 85%, 60%, 0.8)`;
                         
-                        // Kolmiulotteinen gradientti, joka tummuu reunoja kohti ja loistaa valopisteellä
+                        // Kolmiulotteinen radiaaligradientti, joka luo lasimaisen 3D-heijastuksen ja tummuu reunoille
                         const grad = ctx.createRadialGradient(
                             x - ballRadius * 0.2, y - ballRadius * 0.2, ballRadius * 0.1, // Valopisteen keskitys
                             x, y, ballRadius                                              // Pallon ulkoreuna
                         );
                         grad.addColorStop(0, `hsla(${hue}, 95%, 75%, 1)`); // Kirkas kohokohta
-                        grad.addColorStop(0.4, `hsla(${hue}, 85%, 55%, 1)`); // Perusväri
-                        grad.addColorStop(1, `hsla(${hue}, 95%, 20%, 1)`);  // Tummuva ulkoreuna
+                        grad.addColorStop(0.4, `hsla(${hue}, 85%, 55%, 1)`); // Pohjaväri
+                        grad.addColorStop(1, `hsla(${hue}, 95%, 20%, 1)`);  // Tummuva reuna ilman kovaa reunaviivaa
                         
                         ctx.beginPath(); 
                         ctx.arc(x, y, ballRadius, 0, Math.PI*2);
@@ -1598,7 +1620,7 @@
                         ctx.fill();
                         ctx.restore();
                         
-                        // Tekstien piirto tarkasti ja selkeästi (varjon kera varmentamaan kontrastia)
+                        // Tekstien piirto kristallinkirkkaana varjostuksen avulla (Retina/High-DPI skaalattuna)
                         ctx.fillStyle = "#fff"; 
                         ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif"; 
                         ctx.textAlign = "center";
